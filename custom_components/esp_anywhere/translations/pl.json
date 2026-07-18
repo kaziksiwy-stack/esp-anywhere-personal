@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ESP Anywhere Personal",
+        "description": "Połącz bezpośrednio z własnym brokerem MQTT. Podpisane OTA jest opcjonalne.",
+        "data": {
+          "broker": "Nazwa hosta brokera", "port": "Port brokera", "username": "Nazwa użytkownika",
+          "password": "Hasło", "tenant_id": "Identyfikator tenant", "tls": "Użyj TLS",
+          "enable_ota": "Włącz podpisane OTA"
+        }
+      },
+      "ota": {
+        "title": "Opcjonalne podpisane OTA",
+        "description": "Skonfiguruj eksperymentalne ustawienia zaufania OTA.",
+        "data": {
+          "signing_key_id": "Identyfikator klucza podpisującego",
+          "signing_public_key": "Publiczny klucz podpisujący (Base64)",
+          "firmware_host": "Dozwolony host firmware"
+        }
+      }
+    }
+  }
+}

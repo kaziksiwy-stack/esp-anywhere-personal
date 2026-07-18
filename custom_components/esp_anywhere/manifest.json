@@ -1,0 +1,13 @@
+{
+  "domain": "esp_anywhere",
+  "name": "ESP Anywhere Personal",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/kaziksiwy-stack/esp-anywhere-personal",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/kaziksiwy-stack/esp-anywhere-personal/issues",
+  "requirements": ["aiomqtt==2.5.1", "rfc8785==0.1.4"],
+  "version": "0.1.0"
+}

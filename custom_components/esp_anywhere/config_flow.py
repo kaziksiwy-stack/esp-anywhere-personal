@@ -1,0 +1,85 @@
+"""Config flow for ESP Anywhere Personal."""
+from __future__ import annotations
+import base64
+import binascii
+from typing import Any
+from urllib.parse import urlsplit
+import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.data_entry_flow import FlowResult
+from .const import (
+    CONF_BROKER, CONF_ENABLE_OTA, CONF_FIRMWARE_HOST, CONF_PASSWORD, CONF_PORT,
+    CONF_SIGNING_KEY_ID, CONF_SIGNING_PUBLIC_KEY, CONF_TENANT_ID, CONF_TLS,
+    CONF_USERNAME, DEFAULT_PORT, DEFAULT_TLS, DOMAIN,
+)
+
+def _required_text(value: str) -> str:
+    value = value.strip()
+    if not value or len(value) > 512:
+        raise vol.Invalid("required")
+    return value
+
+def _required_secret(value: str) -> str:
+    if not value or not value.strip() or len(value) > 512:
+        raise vol.Invalid("required")
+    return value
+
+def _public_key(value: str) -> str:
+    value = _required_text(value)
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise vol.Invalid("invalid_public_key") from error
+    if len(decoded) != 32:
+        raise vol.Invalid("invalid_public_key")
+    return value
+
+def _firmware_host(value: str) -> str:
+    value = _required_text(value).lower()
+    parsed = urlsplit(f"//{value}")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise vol.Invalid("invalid_firmware_host") from error
+    if parsed.hostname != value or port is not None or any(c in value for c in ("/", "@", "?", "#")):
+        raise vol.Invalid("invalid_firmware_host")
+    return value
+
+class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Configure direct Personal MQTT."""
+    VERSION = 3
+    def __init__(self) -> None:
+        super().__init__()
+        self._personal_data: dict[str, Any] = {}
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Collect direct MQTT settings without requiring OTA."""
+        if user_input is not None:
+            enable_ota = user_input.pop(CONF_ENABLE_OTA)
+            self._personal_data = dict(user_input)
+            if enable_ota:
+                return await self.async_step_ota()
+            return await self._finish()
+        return self.async_show_form(step_id="user", data_schema=vol.Schema({
+            vol.Required(CONF_BROKER): _required_text,
+            vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(CONF_USERNAME): _required_text,
+            vol.Required(CONF_PASSWORD): _required_secret,
+            vol.Required(CONF_TENANT_ID): _required_text,
+            vol.Required(CONF_TLS, default=DEFAULT_TLS): bool,
+            vol.Required(CONF_ENABLE_OTA, default=False): bool,
+        }))
+    async def async_step_ota(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Collect optional public OTA trust data."""
+        if user_input is not None:
+            self._personal_data.update(user_input)
+            return await self._finish()
+        return self.async_show_form(step_id="ota", data_schema=vol.Schema({
+            vol.Required(CONF_SIGNING_KEY_ID): _required_text,
+            vol.Required(CONF_SIGNING_PUBLIC_KEY): _public_key,
+            vol.Required(CONF_FIRMWARE_HOST): _firmware_host,
+        }))
+    async def _finish(self) -> FlowResult:
+        unique_id = f"{self._personal_data[CONF_BROKER]}:{self._personal_data[CONF_PORT]}/{self._personal_data[CONF_TENANT_ID]}"
+        await self.async_set_unique_id(unique_id.lower())
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title="ESP Anywhere Personal", data=self._personal_data)
