@@ -53,31 +53,48 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._personal_data: dict[str, Any] = {}
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Collect direct MQTT settings without requiring OTA."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            enable_ota = user_input.pop(CONF_ENABLE_OTA)
-            self._personal_data = dict(user_input)
-            if enable_ota:
-                return await self.async_step_ota()
-            return await self._finish()
+            try:
+                user_input[CONF_BROKER] = _required_text(user_input[CONF_BROKER])
+                user_input[CONF_USERNAME] = _required_text(user_input[CONF_USERNAME])
+                user_input[CONF_PASSWORD] = _required_secret(user_input[CONF_PASSWORD])
+                user_input[CONF_TENANT_ID] = _required_text(user_input[CONF_TENANT_ID])
+            except vol.Invalid:
+                errors["base"] = "invalid_input"
+            else:
+                enable_ota = user_input.pop(CONF_ENABLE_OTA)
+                self._personal_data = dict(user_input)
+                if enable_ota:
+                    return await self.async_step_ota()
+                return await self._finish()
         return self.async_show_form(step_id="user", data_schema=vol.Schema({
-            vol.Required(CONF_BROKER): _required_text,
+            vol.Required(CONF_BROKER): str,
             vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
-            vol.Required(CONF_USERNAME): _required_text,
-            vol.Required(CONF_PASSWORD): _required_secret,
-            vol.Required(CONF_TENANT_ID): _required_text,
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD): str,
+            vol.Required(CONF_TENANT_ID): str,
             vol.Required(CONF_TLS, default=DEFAULT_TLS): bool,
             vol.Required(CONF_ENABLE_OTA, default=False): bool,
-        }))
+        }), errors=errors)
     async def async_step_ota(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Collect optional public OTA trust data."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._personal_data.update(user_input)
-            return await self._finish()
+            try:
+                user_input[CONF_SIGNING_KEY_ID] = _required_text(user_input[CONF_SIGNING_KEY_ID])
+                user_input[CONF_SIGNING_PUBLIC_KEY] = _public_key(user_input[CONF_SIGNING_PUBLIC_KEY])
+                user_input[CONF_FIRMWARE_HOST] = _firmware_host(user_input[CONF_FIRMWARE_HOST])
+            except vol.Invalid:
+                errors["base"] = "invalid_input"
+            else:
+                self._personal_data.update(user_input)
+                return await self._finish()
         return self.async_show_form(step_id="ota", data_schema=vol.Schema({
-            vol.Required(CONF_SIGNING_KEY_ID): _required_text,
-            vol.Required(CONF_SIGNING_PUBLIC_KEY): _public_key,
-            vol.Required(CONF_FIRMWARE_HOST): _firmware_host,
-        }))
+            vol.Required(CONF_SIGNING_KEY_ID): str,
+            vol.Required(CONF_SIGNING_PUBLIC_KEY): str,
+            vol.Required(CONF_FIRMWARE_HOST): str,
+        }), errors=errors)
     async def _finish(self) -> FlowResult:
         unique_id = f"{self._personal_data[CONF_BROKER]}:{self._personal_data[CONF_PORT]}/{self._personal_data[CONF_TENANT_ID]}"
         await self.async_set_unique_id(unique_id.lower())

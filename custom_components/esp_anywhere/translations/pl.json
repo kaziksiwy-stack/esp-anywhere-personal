@@ -1,5 +1,6 @@
 {
   "config": {
+    "error": {"invalid_input": "Sprawdź wprowadzone wartości."},
     "step": {
       "user": {
         "title": "ESP Anywhere Personal",
