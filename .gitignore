@@ -4,3 +4,4 @@ __pycache__/
 worker/node_modules/
 tests/__pycache__/
 worker/.wrangler/
+worker_output.log
