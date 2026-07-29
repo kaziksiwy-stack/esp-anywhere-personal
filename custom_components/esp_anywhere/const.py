@@ -4,6 +4,14 @@ DOMAIN = "esp_anywhere"
 PROTOCOL_VERSION = "1.0"
 TOPIC_ROOT = "esp-anywhere/v1"
 
+CONF_TRANSPORT = "transport"
+TRANSPORT_MQTT = "mqtt"
+TRANSPORT_CLOUDFLARE = "cloudflare_websocket"
+
+CONF_RELAY_URL = "relay_url"
+CONF_INSTALLATION_ID = "installation_id"
+CONF_TOKEN = "token"
+
 CONF_BROKER = "broker"
 CONF_PORT = "port"
 CONF_USERNAME = "username"

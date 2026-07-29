@@ -1,0 +1,12 @@
+name = "esp-anywhere-worker"
+main = "src/index.ts"
+compatibility_date = "2024-02-08"
+
+[durable_objects]
+bindings = [
+  { name = "ESP_ANYWHERE_INSTALLATION", class_name = "InstallationDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["InstallationDO"]
