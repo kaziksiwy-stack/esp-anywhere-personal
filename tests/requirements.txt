@@ -1,0 +1,4 @@
+websockets==12.0
+aiohttp==3.9.3
+voluptuous==0.14.2
+homeassistant

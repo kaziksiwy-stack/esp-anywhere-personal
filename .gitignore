@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+worker/node_modules/
+tests/__pycache__/
+worker/.wrangler/
+worker_output.log
