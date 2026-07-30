@@ -1,3 +1,9 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+worker/node_modules/
+tests/__pycache__/
+worker/.wrangler/
+worker_output.log
+esp32_client/include/config.h
+esp32_client/.pio/
