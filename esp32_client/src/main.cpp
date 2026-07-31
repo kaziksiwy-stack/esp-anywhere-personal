@@ -331,6 +331,7 @@ void pushState() {
 }
 
 void setup() {
+    Serial.setRxBufferSize(1024);
     Serial.begin(115200);
     delay(750);
     Serial.println("[BOOT] ESP Anywhere starting");

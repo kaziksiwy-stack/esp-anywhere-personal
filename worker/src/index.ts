@@ -1,6 +1,6 @@
 import { InstallationDO } from './DurableObject';
-import provisionHtml from './provision-v2.html';
-import firmwareImage from './firmware-fa2dcc.bin';
+import provisionHtml from './provision-v3.html';
+import firmwareImage from './firmware-9477ef.bin';
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;

@@ -57,9 +57,17 @@ const setStage=(id,state)=>{const node=document.getElementById(id);if(node)node.
 const friendly=(error)=>{
   if(error?.name==='NotFoundError')return 'Anulowano wybór portu. Nic nie zostało zmienione.';
   if(error?.name==='SecurityError')return 'Przeglądarka nie ma uprawnień do portu USB.';
-  if(error?.name==='NetworkError')return 'Port jest zajęty. Zamknij monitor portu i spróbuj ponownie.';
+  if(['NetworkError','InvalidStateError','NotReadableError'].includes(error?.name))return 'Port jest jeszcze zajęty po flashowaniu. Odczekaj chwilę i spróbuj ponownie.';
   return 'Nie udało się skonfigurować urządzenia. Odłącz je, podłącz ponownie i spróbuj jeszcze raz.';
 };
+async function preparePort(port){
+  for(let attempt=0;attempt<10;attempt++){
+    if(port.readable&&port.writable&&!port.readable.locked&&!port.writable.locked)return;
+    if(!port.readable&&!port.writable){try{await port.open({baudRate:115200});return;}catch(error){if(!['NetworkError','InvalidStateError','NotReadableError'].includes(error?.name))throw error;}}
+    await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+  throw new DOMException('Port busy','NetworkError');
+}
 async function loadConfig(){
   if(!window.isSecureContext){message.textContent='Ta strona musi być otwarta przez HTTPS. Skonfiguruj bezpieczny adres Home Assistant i otwórz ją ponownie.';document.getElementById('configure').disabled=true;return;}
   if(!('serial' in navigator)){message.textContent='Nieobsługiwana przeglądarka. Użyj Chrome lub Edge na komputerze.';document.getElementById('configure').disabled=true;return;}
@@ -83,10 +91,12 @@ document.getElementById('configure').addEventListener('click',async()=>{
   try{
     if(!privateConfig)await loadConfig();
     port=await navigator.serial.requestPort({filters:[{usbVendorId:0x303a}]});setStage('detected','ok');
-    await port.open({baudRate:115200});
+    await preparePort(port);
     const writer=port.writable.getWriter();
     const packet={type:'provision',wifi_ssid:ssid,wifi_password:wifiPassword,relay_url:privateConfig.relay_url,installation_id:privateConfig.installation_id,activation_code:privateConfig.activation_code,device_id:privateConfig.device_id,device_name:privateConfig.device_name,profile_id:privateConfig.profile_id};
-    await writer.write(new TextEncoder().encode(JSON.stringify(packet)+'\n'));writer.releaseLock();
+    const encoded=new TextEncoder().encode(JSON.stringify(packet)+'\n');
+    for(let offset=0;offset<encoded.length;offset+=64){await writer.write(encoded.slice(offset,offset+64));await new Promise(resolve=>setTimeout(resolve,20));}
+    writer.releaseLock();
     document.getElementById('password').value='';packet.wifi_password='';packet.activation_code='';privateConfig.activation_code='';
     reader=port.readable.pipeThrough(new TextDecoderStream()).getReader();let buffer='';const deadline=Date.now()+90000;
     while(Date.now()<deadline){const {value,done}=await reader.read();if(done)break;buffer+=value;const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines){

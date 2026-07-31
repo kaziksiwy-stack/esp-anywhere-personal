@@ -30,7 +30,7 @@ class ProvisioningAssetTests(unittest.TestCase):
         self.assertTrue(required.issubset(profiles[0]))
 
     def test_web_page_keeps_secrets_out_of_url_and_logs(self):
-        html = (ROOT / "worker/src/provision-v2.html").read_text()
+        html = (ROOT / "worker/src/provision-v3.html").read_text()
         handoff = (ROOT / "custom_components/esp_anywhere/static/provision.html").read_text()
         self.assertNotIn("ADMIN_TOKEN", html)
         self.assertNotIn("console.log", html)
@@ -41,12 +41,15 @@ class ProvisioningAssetTests(unittest.TestCase):
         self.assertIn("factory_reset", html)
         self.assertIn("confirm(", html)
         self.assertIn("reader.releaseLock()", html)
+        self.assertIn("offset+=64", html)
+        self.assertIn("async function preparePort", html)
+        self.assertIn("NotReadableError", html)
         self.assertIn("esp-anywhere-config", handoff)
         self.assertIn("event.origin!==provisionOrigin", handoff)
         self.assertNotIn("activation_code", handoff)
 
     def test_inline_javascript_is_syntactically_valid(self):
-        for relative in ("custom_components/esp_anywhere/static/provision.html", "worker/src/provision-v2.html"):
+        for relative in ("custom_components/esp_anywhere/static/provision.html", "worker/src/provision-v3.html"):
             html = (ROOT / relative).read_text()
             scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
             self.assertEqual(len(scripts), 1)
@@ -56,6 +59,7 @@ class ProvisioningAssetTests(unittest.TestCase):
         source = (ROOT / "esp32_client/src/main.cpp").read_text()
         self.assertIn('type == "factory_reset"', source)
         self.assertIn('preferences.remove("activation")', source)
+        self.assertIn('Serial.setRxBufferSize(1024)', source)
         provisioning = (ROOT / "custom_components/esp_anywhere/provisioning.py").read_text()
         self.assertIn('item.activation_code = ""', provisioning)
         self.assertIn('preferences.clear()', source)
