@@ -79,6 +79,15 @@ class TestWebsocketClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.raw["progress"], 25)
 
 
+    async def test_mapping_ota_terminal_states(self):
+        for event_type, state in (("ota_success", "confirmed"), ("ota_failed", "failed"), ("ota_rollback", "rollback")):
+            self.handler_mock.reset_mock()
+            await self.client._async_handle_incoming(json.dumps({"type": event_type, "device_id": "dev1", "state": state, "progress": 100, "command_id": "cmd-1"}))
+            topic, message = self.handler_mock.call_args[0]
+            self.assertEqual(topic.suffix, "ota/progress")
+            self.assertEqual(message.raw["state"], state)
+
+
 class TestRelayUrls(unittest.TestCase):
     def test_http_base_urls(self):
         self.assertEqual(claim_url("http://host:8787"), "http://host:8787/claim")
