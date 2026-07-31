@@ -1,9 +1,20 @@
 {
   "config": {
-    "error": {"invalid_input": "Sprawdź wprowadzone wartości."},
+    "error": {
+      "invalid_input": "Sprawdź wprowadzone wartości.",
+      "cannot_connect": "Nie można połączyć się z Workerem.",
+      "invalid_code": "Kod aktywacyjny jest nieprawidłowy lub wygasł.",
+      "invalid_role": "Kod aktywacyjny nie jest przeznaczony dla Home Assistanta."
+    },
     "step": {
-      "user": {
-        "title": "ESP Anywhere Personal",
+      "user": {"title": "ESP Anywhere Personal", "description": "Wybierz transport połączenia.", "data": {"transport": "Transport"}},
+      "cloudflare": {
+        "title": "Lokalny Worker WebSocket",
+        "description": "Podaj bazowy adres Workera i jednorazowy kod Home Assistanta.",
+        "data": {"relay_url": "Bazowy adres Workera", "activation_code": "Kod aktywacyjny Home Assistanta"}
+      },
+      "mqtt": {
+        "title": "Bezpośredni MQTT",
         "description": "Połącz bezpośrednio z własnym brokerem MQTT. Podpisane OTA jest opcjonalne.",
         "data": {
           "broker": "Nazwa hosta brokera", "port": "Port brokera", "username": "Nazwa użytkownika",

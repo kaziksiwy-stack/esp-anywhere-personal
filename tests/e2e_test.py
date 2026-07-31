@@ -1,6 +1,7 @@
 import asyncio
 import json
 import websockets
+import aiohttp
 import argparse
 
 from custom_components.esp_anywhere.websocket_client import EspAnywhereWebsocketClient, CloudflareSettings
@@ -15,8 +16,44 @@ class DummyDeviceListener:
         self.device = device
         print(f"[HA Core Mock] Device {device.device_id} updated. Suffix: {suffix}. State: {device.state}")
 
-async def run_ha_core(ws_url, token, installation_id):
-    settings = CloudflareSettings(relay_url=ws_url, installation_id=installation_id, token=token)
+async def claim_activation_code(http_url, code, device_id=None):
+    print(f"[Provisioning] Claiming activation code at {http_url}/claim...")
+    claim_body = {"code": code}
+    if device_id is not None:
+        claim_body["device_id"] = device_id
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{http_url}/claim", json=claim_body) as response:
+            response.raise_for_status()
+            result = await response.json()
+    print("[Provisioning] Successfully claimed.")
+    return result
+
+async def create_activation_code(http_url, admin_token, installation_id, role):
+    """Create one activation code using the same HTTP stack as HA."""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    body = {"installation_id": installation_id, "role": role}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(
+            f"{http_url}/admin/activation-code", json=body
+        ) as response:
+            response.raise_for_status()
+            return await response.json()
+
+async def run_ha_core(ws_url, http_url, admin_token, installation_id):
+    # 1. Generate code for HA
+    print(f"[Provisioning] Generating HA code for {installation_id}...")
+    code_res = await create_activation_code(
+        http_url, admin_token, installation_id, "home_assistant"
+    )
+    ha_code = code_res['code']
+    print("[Provisioning] HA activation code generated.")
+
+    # 2. Claim code
+    claim_res = await claim_activation_code(http_url, ha_code)
+    ha_token = claim_res['token']
+
+    # 3. Connect HA
+    settings = CloudflareSettings(relay_url=ws_url, installation_id=installation_id, token=ha_token)
 
     client = None
     runtime = None
@@ -35,7 +72,7 @@ async def run_ha_core(ws_url, token, installation_id):
     await client.async_start()
     print("[HA Core Mock] Client connected.")
 
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)
 
     if listener.device and listener.device.device_id:
         print("[HA Core Mock] Triggering set_entity command from Switch...")
@@ -51,12 +88,25 @@ async def run_ha_core(ws_url, token, installation_id):
         except Exception as e:
             print(f"[HA Core Mock] Command failed: {e}")
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(2)
     await client.async_stop()
 
-async def run_device_loop(ws_url, token, installation_id, device_id):
-    url = f"{ws_url}?role=device&installation_id={installation_id}&device_id={device_id}&token={token}"
-    async with websockets.connect(url) as ws:
+async def run_device_loop(ws_url, http_url, admin_token, installation_id, device_id):
+    # 1. Generate code for Device
+    print(f"[Provisioning] Generating DEVICE code for {installation_id}...")
+    code_res = await create_activation_code(
+        http_url, admin_token, installation_id, "device"
+    )
+    dev_code = code_res['code']
+    print("[Provisioning] Device activation code generated.")
+
+    # 2. Claim code
+    claim_res = await claim_activation_code(http_url, dev_code, device_id)
+    dev_token = claim_res['token']
+
+    # 3. Connect Device
+    url = f"{ws_url}/ws?role=device&installation_id={installation_id}&device_id={device_id}"
+    async with websockets.connect(url, extra_headers={"Authorization": f"Bearer {dev_token}"}) as ws:
         print("[ESP Mock] Connected")
 
         discovery_msg = {
@@ -97,73 +147,42 @@ async def run_device_loop(ws_url, token, installation_id, device_id):
             }
         }
         await ws.send(json.dumps(state_msg))
-        print(f"[ESP Mock] Sent initial state: {state_msg['payload']}")
-
-        async def send_periodic_updates():
-            nonlocal state_sensor
-            while True:
-                await asyncio.sleep(10)
-                state_sensor += 1
-                update_msg = {
-                    "type": "state",
-                    "payload": {
-                        "test_sensor": state_sensor,
-                        "test_switch": state_switch
-                    }
-                }
-                await ws.send(json.dumps(update_msg))
-                print(f"[ESP Mock] Sent periodic state update: {update_msg['payload']}")
+        print(f'[ESP Mock] Sent initial state: {state_msg.get("payload")}')
 
         async def listen_commands():
             nonlocal state_switch
             async for message in ws:
                 data = json.loads(message)
                 print(f"[ESP Mock] Received: {data}")
+                if data.get("type") != "command" or data.get("command") != "set_entity":
+                    continue
+                command_id = data.get("command_id")
+                params = data.get("parameters", {})
+                if params.get("entity_id") != "test_switch":
+                    continue
+                state_switch = params.get("value", False)
+                await ws.send(json.dumps({
+                    "type": "command_result",
+                    "command_id": command_id,
+                    "state": "succeeded"
+                }))
+                await ws.send(json.dumps({
+                    "type": "state",
+                    "payload": {
+                        "test_sensor": state_sensor,
+                        "test_switch": state_switch
+                    }
+                }))
+                return
 
-                if data.get("type") == "command" and data.get("command") == "set_entity":
-                    command_id = data.get("command_id")
-                    params = data.get("parameters", {})
-
-                    if params.get("entity_id") == "test_switch":
-                        new_val = params.get("value", False)
-                        state_switch = new_val
-                        print(f"[ESP Mock] Executed switch. New state: {state_switch}. Sending succeeded...")
-
-                        # Send acknowledgment
-                        ack = {
-                            "type": "command_result",
-                            "command_id": command_id,
-                            "state": "succeeded"
-                        }
-                        await ws.send(json.dumps(ack))
-
-                        # Follow up with state update to reflect the new switch value
-                        state_msg = {
-                            "type": "state",
-                            "payload": {
-                                "test_sensor": state_sensor,
-                                "test_switch": state_switch
-                            }
-                        }
-                        await ws.send(json.dumps(state_msg))
-
-        # Run both the listener and the periodic updates concurrently
-        periodic_task = asyncio.create_task(send_periodic_updates())
-        listen_task = asyncio.create_task(listen_commands())
-
-        done, pending = await asyncio.wait(
-            [periodic_task, listen_task],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-
-        for task in pending:
-            task.cancel()
+        await asyncio.wait_for(listen_commands(), timeout=10)
 
 async def main():
-    parser = argparse.ArgumentParser(description="Test ESP Anywhere WebSocket transport")
+    parser = argparse.ArgumentParser(description="Test ESP Anywhere WebSocket transport with Provisioning")
     parser.add_argument("--mode", choices=["e2e", "device-only"], default="e2e", help="Run full flow or isolated device")
-    parser.add_argument("--ws-url", default="ws://localhost:8787", help="Relay WebSocket URL")
-    parser.add_argument("--token", required=True, help="Installation authorization token")
+    parser.add_argument("--ws-url", default="ws://localhost:8788", help="Relay WebSocket URL")
+    parser.add_argument("--http-url", default="http://localhost:8788", help="Relay HTTP URL")
+    parser.add_argument("--admin-token", default="testadmin", help="Admin Token for code generation")
     parser.add_argument("--install-id", default="home-1", help="Installation ID for grouping")
     parser.add_argument("--device-id", default="dev_001", help="Device ID")
 
@@ -172,12 +191,11 @@ async def main():
     print(f"Starting in mode: {args.mode}")
 
     if args.mode == "device-only":
-        await run_device_loop(args.ws_url, args.token, args.install_id, args.device_id)
+        await run_device_loop(args.ws_url, args.http_url, args.admin_token, args.install_id, args.device_id)
     else:
-        # e2e mode includes mock HA Client
-        task_ha = asyncio.create_task(run_ha_core(args.ws_url, args.token, args.install_id))
-        await asyncio.sleep(1)
-        task_device = asyncio.create_task(run_device_loop(args.ws_url, args.token, args.install_id, args.device_id))
+        task_ha = asyncio.create_task(run_ha_core(args.ws_url, args.http_url, args.admin_token, args.install_id))
+        await asyncio.sleep(2)
+        task_device = asyncio.create_task(run_device_loop(args.ws_url, args.http_url, args.admin_token, args.install_id, args.device_id))
 
         await asyncio.gather(task_ha, task_device)
 

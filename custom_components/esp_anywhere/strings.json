@@ -1,9 +1,27 @@
 {
   "config": {
-    "error": {"invalid_input": "Check the entered values."},
+    "error": {
+      "invalid_input": "Check the entered values.",
+      "cannot_connect": "Cannot connect to the relay.",
+      "invalid_code": "The activation code is invalid or expired.",
+      "invalid_role": "The activation code is not for Home Assistant."
+    },
     "step": {
       "user": {
         "title": "ESP Anywhere Personal",
+        "description": "Choose the connection transport.",
+        "data": {"transport": "Transport"}
+      },
+      "cloudflare": {
+        "title": "Local Worker WebSocket",
+        "description": "Enter the relay base URL and one-time Home Assistant activation code.",
+        "data": {
+          "relay_url": "Relay base URL",
+          "activation_code": "Home Assistant activation code"
+        }
+      },
+      "mqtt": {
+        "title": "Direct MQTT",
         "description": "Connect directly to your MQTT broker. Signed OTA is optional.",
         "data": {
           "broker": "Broker hostname",

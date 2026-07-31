@@ -1,6 +1,5 @@
 import asyncio
 import json
-import websockets
 import sys
 
 # Prototypowy test e2e
@@ -8,8 +7,8 @@ import sys
 # Zamiast tego przygotuje prosty skrypt, ktory mozna odpalic na dzialajacym websocket (np. cloudflare worker dev).
 
 async def simulate_ha(ws_url, token, installation_id):
-    url = f"{ws_url}?role=home_assistant&installation_id={installation_id}&token={token}"
-    async with websockets.connect(url) as ws:
+    url = f"{ws_url}/ws?role=home_assistant&installation_id={installation_id}"
+    async with websockets.connect(url, extra_headers={"Authorization": f"Bearer {token}"}) as ws:
         print("[HA] Connected")
         async for message in ws:
             data = json.loads(message)
@@ -23,8 +22,8 @@ async def simulate_ha(ws_url, token, installation_id):
                 }))
 
 async def simulate_device(ws_url, token, installation_id, device_id):
-    url = f"{ws_url}?role=device&installation_id={installation_id}&device_id={device_id}&token={token}"
-    async with websockets.connect(url) as ws:
+    url = f"{ws_url}/ws?role=device&installation_id={installation_id}&device_id={device_id}"
+    async with websockets.connect(url, extra_headers={"Authorization": f"Bearer {token}"}) as ws:
         print("[Device] Connected")
         await ws.send(json.dumps({"type": "ping"}))
         await asyncio.sleep(0.5)
@@ -47,6 +46,8 @@ async def simulate_device(ws_url, token, installation_id, device_id):
                 break
 
 async def main():
+    global websockets
+    import websockets
     if len(sys.argv) < 2:
         print("Usage: python test_cloudflare_transport.py <ws_url>")
         sys.exit(1)

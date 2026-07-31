@@ -1,0 +1,3 @@
+# Copy this file to .dev.vars and replace the value locally.
+# Never commit worker/.dev.vars.
+ADMIN_TOKEN=replace-with-a-long-random-local-admin-token

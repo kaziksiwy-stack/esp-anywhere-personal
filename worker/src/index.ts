@@ -1,45 +1,99 @@
 import { InstallationDO } from './DurableObject';
 
+const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
+const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
+
 export interface Env {
   ESP_ANYWHERE_INSTALLATION: DurableObjectNamespace;
-  AUTH_TOKEN?: string;
+  ADMIN_TOKEN?: string;
 }
 
 export { InstallationDO };
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (!upgradeHeader || upgradeHeader !== 'websocket') {
-      return new Response('Expected Upgrade: websocket', { status: 426 });
-    }
-
     const url = new URL(request.url);
-    const installationId = url.searchParams.get('installation_id');
-    const role = url.searchParams.get('role'); // "device" or "home_assistant"
 
-    // Support token from query param or Authorization header
-    let token = url.searchParams.get('token');
-    const authHeader = request.headers.get('Authorization');
-    if (!token && authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
+    // HTTP API: Create Activation Code (Admin only)
+    if (request.method === 'POST' && url.pathname === '/admin/activation-code') {
+      const authHeader = request.headers.get('Authorization');
+      if (!env.ADMIN_TOKEN || authHeader !== `Bearer ${env.ADMIN_TOKEN}`) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const body = (await request.clone().json()) as any;
+        const installationId = body.installation_id;
+        const role = body.role; // 'home_assistant' or 'device'
+
+        if (
+          typeof installationId !== 'string'
+          || !IDENTIFIER_PATTERN.test(installationId)
+          || (role !== 'home_assistant' && role !== 'device')
+        ) {
+          return new Response('Invalid request', { status: 400 });
+        }
+
+        const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+        const stub = env.ESP_ANYWHERE_INSTALLATION.get(id);
+
+        // Pass request to DO
+        return stub.fetch(request);
+      } catch (e) {
+        return new Response('Bad request', { status: 400 });
+      }
     }
 
-    if (!installationId || !role) {
-      return new Response('Missing installation_id or role', { status: 400 });
+    // HTTP API: Claim Code (HA or Device)
+    if (request.method === 'POST' && url.pathname === '/claim') {
+      try {
+        const body = (await request.clone().json()) as any;
+        const code = body.code;
+        const codeMatch = typeof code === 'string'
+          ? ACTIVATION_CODE_PATTERN.exec(code)
+          : null;
+        if (!codeMatch) {
+          return new Response('Invalid code format', { status: 400 });
+        }
+
+        const installationId = codeMatch[1];
+        const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+        const stub = env.ESP_ANYWHERE_INSTALLATION.get(id);
+
+        return stub.fetch(request);
+      } catch (e) {
+        return new Response('Bad request', { status: 400 });
+      }
     }
 
-    if (role !== 'device' && role !== 'home_assistant') {
-      return new Response('Invalid role', { status: 400 });
+    // WebSocket Connection
+    if (url.pathname === '/ws') {
+      const upgradeHeader = request.headers.get('Upgrade');
+      if (!upgradeHeader || upgradeHeader !== 'websocket') {
+        return new Response('Expected Upgrade: websocket', { status: 426 });
+      }
+
+      const installationId = url.searchParams.get('installation_id');
+      const role = url.searchParams.get('role'); // "device" or "home_assistant"
+
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : null;
+
+      if (!installationId || !IDENTIFIER_PATTERN.test(installationId) || !role || !token) {
+        return new Response('Missing parameters', { status: 400 });
+      }
+
+      if (role !== 'device' && role !== 'home_assistant') {
+        return new Response('Invalid role', { status: 400 });
+      }
+
+      const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+      const stub = env.ESP_ANYWHERE_INSTALLATION.get(id);
+
+      return stub.fetch(request);
     }
 
-    if (env.AUTH_TOKEN && token !== env.AUTH_TOKEN) {
-      return new Response('Unauthorized', { status: 401 });
-    }
-
-    const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
-    const stub = env.ESP_ANYWHERE_INSTALLATION.get(id);
-
-    return stub.fetch(request);
+    return new Response('Not found', { status: 404 });
   },
 };

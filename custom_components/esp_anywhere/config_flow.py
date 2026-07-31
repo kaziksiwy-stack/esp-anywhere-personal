@@ -1,13 +1,17 @@
-"""Config flow for ESP Anywhere Personal."""
+"""Config flow for ESP Anywhere."""
 from __future__ import annotations
 import base64
 import binascii
 from typing import Any
 from urllib.parse import urlsplit
 import voluptuous as vol
+import aiohttp
+
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.selector import selector
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
 from .const import (
     CONF_BROKER, CONF_ENABLE_OTA, CONF_FIRMWARE_HOST, CONF_PASSWORD, CONF_PORT,
     CONF_SIGNING_KEY_ID, CONF_SIGNING_PUBLIC_KEY, CONF_TENANT_ID, CONF_TLS,
@@ -15,6 +19,7 @@ from .const import (
     CONF_TRANSPORT, TRANSPORT_MQTT, TRANSPORT_CLOUDFLARE,
     CONF_RELAY_URL, CONF_INSTALLATION_ID, CONF_TOKEN
 )
+from .relay_url import claim_url
 
 def _required_text(value: str) -> str:
     value = value.strip()
@@ -48,9 +53,11 @@ def _firmware_host(value: str) -> str:
         raise vol.Invalid("invalid_firmware_host")
     return value
 
+
 class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Configure ESP Anywhere Personal."""
+    """Configure ESP Anywhere."""
     VERSION = 3
+
     def __init__(self) -> None:
         super().__init__()
         self._personal_data: dict[str, Any] = {}
@@ -66,33 +73,55 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_TRANSPORT, default=TRANSPORT_MQTT): vol.In([TRANSPORT_MQTT, TRANSPORT_CLOUDFLARE])
+                vol.Required(CONF_TRANSPORT, default=TRANSPORT_CLOUDFLARE): vol.In([TRANSPORT_MQTT, TRANSPORT_CLOUDFLARE])
             })
         )
 
     async def async_step_cloudflare(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Collect Cloudflare WebSocket settings."""
+        """Collect Cloudflare WebSocket settings and claim activation code."""
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                user_input[CONF_RELAY_URL] = _required_text(user_input[CONF_RELAY_URL])
-                user_input[CONF_INSTALLATION_ID] = _required_text(user_input[CONF_INSTALLATION_ID])
-                user_input[CONF_TOKEN] = _required_secret(user_input[CONF_TOKEN])
-            except vol.Invalid:
+                relay_url = _required_text(user_input[CONF_RELAY_URL])
+                activation_code = _required_secret(user_input.get("activation_code", ""))
+
+                # Perform claim against the worker via HTTP.
+                session = async_get_clientsession(self.hass)
+                http_url = claim_url(relay_url)
+
+                async with session.post(http_url, json={"code": activation_code}) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        token = data["token"]
+                        installation_id = data["installation_id"]
+                        role = data["role"]
+
+                        if role != "home_assistant":
+                            errors["base"] = "invalid_role"
+                        else:
+                            self._personal_data = {
+                                CONF_TRANSPORT: TRANSPORT_CLOUDFLARE,
+                                CONF_RELAY_URL: relay_url,
+                                CONF_INSTALLATION_ID: installation_id,
+                                CONF_TOKEN: token,
+                                CONF_TENANT_ID: installation_id, # Fallback compatibility
+                            }
+                            return await self._finish()
+                    elif resp.status == 400:
+                        errors["base"] = "invalid_code"
+                    else:
+                        errors["base"] = "cannot_connect"
+
+            except (vol.Invalid, ValueError):
                 errors["base"] = "invalid_input"
-            else:
-                self._personal_data = dict(user_input)
-                self._personal_data[CONF_TRANSPORT] = TRANSPORT_CLOUDFLARE
-                # Fallbacks for runtime switch and tenant mapping
-                self._personal_data[CONF_TENANT_ID] = user_input[CONF_INSTALLATION_ID]
-                return await self._finish()
+            except Exception:
+                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="cloudflare",
             data_schema=vol.Schema({
-                vol.Required(CONF_RELAY_URL): str,
-                vol.Required(CONF_INSTALLATION_ID): str,
-                vol.Required(CONF_TOKEN): str,
+                vol.Required(CONF_RELAY_URL, default="http://localhost:8787"): str,
+                vol.Required("activation_code"): str,
             }),
             errors=errors
         )
