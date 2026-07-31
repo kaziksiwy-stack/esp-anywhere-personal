@@ -99,6 +99,7 @@ export class InstallationDO {
       this.devices.set(deviceId, server);
       server.serializeAttachment({ role: 'device', deviceId });
       this.pushPresence(deviceId, true);
+      console.log(JSON.stringify({ event: "device_connected", device_id: deviceId }));
     }
     this.errorCounts.set(server, 0);
     this.msgCounts.set(server, 0);
@@ -339,6 +340,7 @@ export class InstallationDO {
         if (type === 'command' || (type === 'ota_start' && isOtaStart(data))) {
           const targetDeviceId = data.device_id;
           const targetWs = this.devices.get(targetDeviceId);
+          if (type === "ota_start") console.log(JSON.stringify({ event: "ota_routed", device_id: targetDeviceId, online: Boolean(targetWs) }));
           if (targetWs) {
             targetWs.send(JSON.stringify(data));
           }
