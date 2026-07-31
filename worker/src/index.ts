@@ -24,11 +24,14 @@ export default {
         const body = (await request.clone().json()) as any;
         const installationId = body.installation_id;
         const role = body.role; // 'home_assistant' or 'device'
+        const deviceId = body.device_id;
 
         if (
           typeof installationId !== 'string'
           || !IDENTIFIER_PATTERN.test(installationId)
           || (role !== 'home_assistant' && role !== 'device')
+          || (role === 'device' && (typeof deviceId !== 'string' || !IDENTIFIER_PATTERN.test(deviceId)))
+          || (role === 'home_assistant' && deviceId !== undefined && deviceId !== '')
         ) {
           return new Response('Invalid request', { status: 400 });
         }

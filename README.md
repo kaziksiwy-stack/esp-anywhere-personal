@@ -7,7 +7,7 @@ and a Durable Object per installation.
 
 ## Current release
 
-- Home Assistant integration: `0.2.0`
+- Home Assistant integration: `0.2.1`
 - Worker: `esp-anywhere-worker`
 - Production relay: `https://esp-anywhere-worker.esp-anywhere-worker.workers.dev`
 - ESP32-C3 firmware: discovery, state, presence, commands, credential persistence,
@@ -37,18 +37,13 @@ The MQTT transport remains available for users with a private TLS MQTT broker.
 
 ## ESP32-C3 provisioning
 
-Copy `esp32_client/include/config.example.h` to the ignored `config.h`, fill in
-Wi-Fi and relay settings, then generate a device-specific activation code:
+Run the guided installer (no manual config editing is required):
 
 ```bash
-read -rsp "ADMIN_TOKEN: " ADMIN_TOKEN; echo
-./scripts/create_activation_code.sh \
-  https://esp-anywhere-worker.esp-anywhere-worker.workers.dev \
-  "$ADMIN_TOKEN" my-home device esp32_c3_001
-unset ADMIN_TOKEN
+./scripts/provision_esp32.sh
 ```
 
-For production WSS, set `RELAY_URL` to the HTTPS relay. The firmware uses
+It hides the Wi-Fi password, validates DEVICE_ID, creates ignored config.h, builds, detects /dev/serial/by-id, optionally erases, uploads and monitors. For production WSS, set `RELAY_URL` to the HTTPS relay. The firmware uses
 the built-in trusted CA bundle for HTTPS and WSS. Build and upload with PlatformIO:
 
 ```bash
@@ -82,3 +77,25 @@ permanent tokens, Wi-Fi credentials, `.dev.vars`, or `config.h`.
 The repository includes Worker unit tests, Home Assistant transport tests, a
 PlatformIO build, and a production E2E smoke test covering activation, claim,
 discovery, state, presence, command routing, and command acknowledgement.
+
+## Architecture and user status
+
+ESP32-C3 -- HTTPS/WSS --> Worker + installation Durable Object <-- WSS -- Home Assistant. Tailscale is not required because both clients connect outbound. HA creates firmware, uptime, connectivity and Board LED with stable device/entity identifiers.
+
+Supported hardware: ESPressif ESP32-C3-DevKitM-1, native USB CDC, active-low board LED on GPIO 8. Other boards need a reviewed hardware profile.
+
+## Troubleshooting and limitations
+
+Use a USB data cable and check /dev/serial/by-id. Codes are single-use, expire in 10 minutes and are bound to installation, role and DEVICE_ID. Check the serial monitor for Wi-Fi, claim and WebSocket status. OTA is explicitly disabled until signed verification and rollback exist.
+
+This is a private alpha, not for safety-critical automation. There is one HA socket per installation and no revocation UI, fleet dashboard, broad board matrix or historical database.
+
+## Developer and security documentation
+
+Repository layout: HA integration in custom_components, Worker in worker, firmware in esp32_client, scripts in scripts and tests in tests. See SECURITY.md, THREAT_MODEL.md, ARCHITECTURE_CLOUD.md, PROTOCOL_CLOUD.md and RELEASING.md. Run ./scripts/release_gate.sh before release.
+
+Roadmap for v0.3.0: signed OTA, token revocation/device removal, more hardware profiles, observability, CI releases and longer fault-injection tests.
+
+## License
+
+MIT; see LICENSE.

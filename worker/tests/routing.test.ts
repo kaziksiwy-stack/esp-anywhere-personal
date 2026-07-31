@@ -107,4 +107,22 @@ describe('InstallationDO Routing & Persistence', () => {
     expect(otherDevice.close).not.toHaveBeenCalled();
     expect(restored.devices.get('device-a')).toBe(replacement);
   });
+  it("rejects expired, reused and mismatched activation codes", async () => {
+    const code = "home-one:0123456789abcdef01234567";
+    const claim = (device = "device-one") => doInstance.fetch(new Request("http://worker/claim", { method: "POST", body: JSON.stringify({ code, device_id: device }) }));
+    mockStorage.data.set(`activation_code:${code}`, { code, role: "device", installationId: "home-one", deviceId: "device-one", expiresAt: Date.now() - 1 });
+    expect((await claim()).status).toBe(400);
+    mockStorage.data.set(`activation_code:${code}`, { code, role: "device", installationId: "home-one", deviceId: "device-one", expiresAt: Date.now() + 60000 });
+    expect((await claim("device-two")).status).toBe(400);
+    expect((await claim()).status).toBe(200);
+    expect((await claim()).status).toBe(400);
+  });
+
+  it("routes LED command and the state after command", async () => {
+    const command = { type: "command", device_id: "test-device", command: "set_entity", parameters: { entity_id: "led_switch", value: true } };
+    await doInstance.webSocketMessage(haSocket, JSON.stringify(command));
+    expect(deviceSocket.send).toHaveBeenCalledWith(JSON.stringify(command));
+    await doInstance.webSocketMessage(deviceSocket, JSON.stringify({ type: "state", payload: { led_switch: true } }));
+    expect(haSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "state", payload: { led_switch: true }, device_id: "test-device" }));
+  });
 });

@@ -18,7 +18,7 @@ Skorzystaj z dedykowanego skryptu ułatwiającego kopiowanie plików do serwera.
 ./scripts/install_to_haos.sh /config
 
 # Jeśli używasz SCP/SSH do maszyny z HAOS (zamień IP i użytkownika)
-./scripts/install_to_haos.sh root@192.168.1.10:/config
+./scripts/install_to_haos.sh root@192.0.2.20:/config
 ```
 Po udanym skopiowaniu przejdź do panelu HA (Settings -> System -> Restart) i zrestartuj serwer Home Assistant, by przeładował nową wersję z custom_components.
 

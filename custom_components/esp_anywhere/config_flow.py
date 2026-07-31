@@ -120,7 +120,10 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="cloudflare",
             data_schema=vol.Schema({
-                vol.Required(CONF_RELAY_URL, default="http://localhost:8787"): str,
+                vol.Required(
+                    CONF_RELAY_URL,
+                    default="https://esp-anywhere-worker.esp-anywhere-worker.workers.dev",
+                ): str,
                 vol.Required("activation_code"): str,
             }),
             errors=errors

@@ -11,6 +11,7 @@ interface ActivationCode {
   role: 'home_assistant' | 'device';
   installationId: string;
   expiresAt: number;
+  deviceId?: string;
 }
 
 interface DeviceCredential {
@@ -107,12 +108,13 @@ export class InstallationDO {
       const body = (await request.json()) as any;
       const installationId = body.installation_id;
       const role = body.role;
+      const deviceId = body.device_id || undefined;
 
       const secret = generateRandomString(12);
       const code = `${installationId}:${secret}`;
       const expiresAt = Date.now() + 10 * 60 * 1000;
 
-      const actCode: ActivationCode = { code, role, installationId, expiresAt };
+      const actCode: ActivationCode = { code, role, installationId, expiresAt, deviceId };
       await this.state.storage.put(`activation_code:${code}`, actCode);
 
       return new Response(JSON.stringify({ code, expiresAt }), {
@@ -124,43 +126,25 @@ export class InstallationDO {
       const body = (await request.json()) as any;
       const code = body.code;
       const deviceId = body.device_id;
-
       const actCode = await this.state.storage.get<ActivationCode>(`activation_code:${code}`);
-      if (!actCode) {
-        return new Response('Invalid code', { status: 400 });
-      }
+      if (!actCode) return new Response('Invalid code', { status: 400 });
       if (Date.now() > actCode.expiresAt) {
         await this.state.storage.delete(`activation_code:${code}`);
         return new Response('Code expired', { status: 400 });
       }
-
-      if (
-        actCode.role === 'device'
-        && (
-          typeof deviceId !== 'string'
-          || !/^[a-z0-9][a-z0-9_-]{2,63}$/.test(deviceId)
-        )
-      ) {
-        return new Response('Missing or invalid device_id', { status: 400 });
-      }
-
+      const codeInstallationId = typeof code === 'string' ? code.split(':', 1)[0] : '';
+      if (codeInstallationId !== actCode.installationId) return new Response('Installation mismatch', { status: 400 });
+      if (actCode.role === 'device' && (typeof deviceId !== 'string' || !/^[a-z0-9][a-z0-9_-]{2,63}$/.test(deviceId))) return new Response('Missing or invalid device_id', { status: 400 });
+      if (actCode.role === 'device' && actCode.deviceId !== deviceId) return new Response('Device mismatch', { status: 400 });
       await this.state.storage.delete(`activation_code:${code}`);
       const newToken = generateRandomString(32);
-
-      if (actCode.role === 'home_assistant') {
-        await this.state.storage.put('ha_token', newToken);
-      } else {
-        const deviceTokens =
-          await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
+      if (actCode.role === 'home_assistant') await this.state.storage.put('ha_token', newToken);
+      else {
+        const deviceTokens = await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
         deviceTokens[deviceId] = { deviceId, token: newToken };
         await this.state.storage.put('device_tokens', deviceTokens);
       }
-
-      return new Response(JSON.stringify({
-        token: newToken,
-        installation_id: actCode.installationId,
-        role: actCode.role
-      }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ token: newToken, installation_id: actCode.installationId, role: actCode.role }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     }
 
     if (url.pathname === '/ws') {

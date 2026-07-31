@@ -16,6 +16,21 @@ from .runtime import EspAnywhereRuntime
 PLATFORMS = ["binary_sensor", "button", "sensor", "switch", "text", "update"]
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate pre-0.2.1 entries without changing their credentials."""
+    if entry.version > 3:
+        return False
+    data = dict(entry.data)
+    if data.get(CONF_TRANSPORT) == TRANSPORT_CLOUDFLARE:
+        installation_id = data.get(CONF_INSTALLATION_ID) or data.get(CONF_TENANT_ID)
+        if not installation_id:
+            return False
+        data[CONF_INSTALLATION_ID] = installation_id
+        data[CONF_TENANT_ID] = installation_id
+    hass.config_entries.async_update_entry(entry, data=data, version=3)
+    return True
+
+
 def mqtt_settings_from_config(config: dict[str, Any]) -> MqttSettings:
     """Recreate direct MQTT settings from persisted config-entry data."""
     return MqttSettings(
@@ -68,6 +83,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an ESP Anywhere Personal config entry."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-    await entry.runtime_data.async_stop()
     await entry.runtime_data.mqtt.async_stop()
     return True

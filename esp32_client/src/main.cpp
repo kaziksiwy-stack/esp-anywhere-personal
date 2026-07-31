@@ -18,8 +18,8 @@ size_t caBundleSize() {
     return static_cast<size_t>(x509_crt_bundle_end - x509_crt_bundle);
 }
 
-#define FIRMWARE_VERSION "1.0.0"
-#define HARDWARE_PROFILE "esp32-c3"
+#define FIRMWARE_VERSION "0.2.1"
+#define HARDWARE_PROFILE "esp32-c3-devkitm-1"
 
 WebSocketsClient webSocket;
 Preferences preferences;
@@ -220,7 +220,7 @@ void pushDiscovery() {
     doc["type"] = "discovery";
 
     JsonObject payload = doc.createNestedObject("payload");
-    payload["name"] = "ESP32 C3 Test Device";
+    payload["name"] = String("ESP Anywhere ") + DEVICE_ID;
     payload["manufacturer"] = "Espressif";
     payload["model"] = "ESP32-C3-DevKitM-1";
     payload["hardware_profile"] = HARDWARE_PROFILE;

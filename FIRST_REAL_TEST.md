@@ -6,9 +6,9 @@ OTA nie jest częścią testu.
 
 Wartości używane w procedurze:
 
-- Lenovo/Worker: `192.168.1.59:8788`
-- instalacja: `first-real-test`
-- urządzenie: `esp32_c3_001`
+- Lenovo/Worker: `192.0.2.10:8788`
+- instalacja: `example-home`
+- urządzenie: `device-one`
 - HAOS: zastąp `IP_HA` adresem Della
 - ESP32: zastąp `/dev/ttyUSB0` właściwym portem
 
@@ -20,7 +20,7 @@ Wartości używane w procedurze:
    hostname -I
    ```
 
-   Dell z HAOS i ESP32 muszą mieć dostęp do `192.168.1.59:8788`. Jeśli Lenovo
+   Dell z HAOS i ESP32 muszą mieć dostęp do `192.0.2.10:8788`. Jeśli Lenovo
    ma firewall, dopuść TCP 8788 wyłącznie z lokalnej sieci.
 
 2. Ustaw lokalny sekret administratora:
@@ -52,7 +52,7 @@ Wartości używane w procedurze:
    cd /home/piotr/esp-anywhere-personal
    read -rsp 'ADMIN_TOKEN: ' ADMIN_TOKEN; echo
    ./scripts/create_activation_code.sh \
-     http://192.168.1.59:8788 "$ADMIN_TOKEN" first-real-test ha
+     http://192.0.2.10:8788 "$ADMIN_TOKEN" example-home ha
    ```
 
    Skopiuj wartość `activation_code`. Nie zapisuj jej w repozytorium.
@@ -61,7 +61,7 @@ Wartości używane w procedurze:
 
    ```bash
    ./scripts/create_activation_code.sh \
-     http://192.168.1.59:8788 "$ADMIN_TOKEN" first-real-test device esp32_c3_001
+     http://192.0.2.10:8788 "$ADMIN_TOKEN" example-home device device-one
    unset ADMIN_TOKEN
    ```
 
@@ -94,12 +94,12 @@ Wartości używane w procedurze:
 
 4. Wpisz:
 
-   - relay URL: `http://192.168.1.59:8788`
+   - relay URL: `http://192.0.2.10:8788`
    - activation code: kod HA z kroku A.4
 
    Config Flow wykona `POST /claim`, zapisze permanentny token w ConfigEntry i
    nie zapisze activation code. Klient HA połączy się pod
-   `ws://192.168.1.59:8788/ws`.
+   `ws://192.0.2.10:8788/ws`.
 
 5. Oczekiwany wynik: integracja zostaje dodana bez `cannot_connect`,
    `invalid_code` ani timeoutu. W razie błędu sprawdź **Settings → System →
@@ -121,10 +121,10 @@ Wartości używane w procedurze:
    ```cpp
    #define WIFI_SSID "TWOJA_SIEC"
    #define WIFI_PASSWORD "TWOJE_HASLO"
-   #define RELAY_URL "http://192.168.1.59:8788"
-   #define INSTALLATION_ID "first-real-test"
+   #define RELAY_URL "http://192.0.2.10:8788"
+   #define INSTALLATION_ID "example-home"
    #define ACTIVATION_CODE "KOD_Z_KROKU_A_5"
-   #define DEVICE_ID "esp32_c3_001"
+   #define DEVICE_ID "device-one"
    #define LED_PIN 8
    #define LED_ACTIVE_LOW true
    ```

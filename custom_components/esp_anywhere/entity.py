@@ -26,7 +26,9 @@ class EspAnywhereEntity(Entity):
         self._runtime = runtime
         self._device = device
         self._esp_description = description
-        self._attr_unique_id = f"{device.device_id}_{description.entity_id}"
+        installation_id = runtime.config.get("installation_id") or runtime.config.get("tenant_id", "default")
+        self._installation_id = installation_id
+        self._attr_unique_id = f"{installation_id}_{device.device_id}_{description.entity_id}"
         self._attr_name = description.name
         self._attr_entity_registry_enabled_default = description.enabled_by_default
         if description.entity_category == "diagnostic":
@@ -45,7 +47,7 @@ class EspAnywhereEntity(Entity):
         discovery = self._device.discovery
         assert discovery is not None
         return DeviceInfo(
-            identifiers={(DOMAIN, self._device.device_id)},
+            identifiers={(DOMAIN, f"{self._installation_id}:{self._device.device_id}")},
             name=discovery.name,
             manufacturer=discovery.manufacturer,
             model=discovery.model,

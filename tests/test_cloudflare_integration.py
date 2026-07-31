@@ -95,5 +95,18 @@ class TestRelayUrls(unittest.TestCase):
             websocket_url("https://relay.example/ws", "home-1")
 
 
-if __name__ == '__main__':
+class TestConfigMigration(unittest.IsolatedAsyncioTestCase):
+    async def test_cloudflare_entry_migration_preserves_token(self):
+        from custom_components.esp_anywhere import async_migrate_entry
+        entry = MagicMock()
+        entry.version = 2
+        entry.data = {"transport": "cloudflare_websocket", "relay_url": "https://relay.example", "tenant_id": "home-one", "token": "redacted-test-token"}
+        hass = MagicMock()
+        self.assertTrue(await async_migrate_entry(hass, entry))
+        updated = hass.config_entries.async_update_entry.call_args.kwargs
+        self.assertEqual(updated["data"]["installation_id"], "home-one")
+        self.assertEqual(updated["data"]["token"], "redacted-test-token")
+        self.assertEqual(updated["version"], 3)
+
+if __name__ == "__main__":
     unittest.main()
