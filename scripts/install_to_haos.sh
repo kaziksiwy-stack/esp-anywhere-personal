@@ -33,12 +33,12 @@ if [[ "$destination" == *:* ]]; then
     remote_host="${destination%%:*}"
     config_path="${destination#*:}"
     integration_path="${config_path%/}/custom_components/esp_anywhere"
-    backup_path="${config_path%/}/custom_components/esp_anywhere_backup_${timestamp}"
+    backup_path="${config_path%/}/esp_anywhere_backups/esp_anywhere_${timestamp}"
     ssh_args=(-p "$ssh_port")
     scp_args=(-P "$ssh_port")
 
     ssh "${ssh_args[@]}" "$remote_host" \
-        "mkdir -p '${config_path%/}/custom_components' && \
+        "mkdir -p '${config_path%/}/custom_components' '${config_path%/}/esp_anywhere_backups' && \
          if [ -d '$integration_path' ]; then cp -a '$integration_path' '$backup_path'; fi && \
          mkdir -p '$integration_path'"
     scp "${scp_args[@]}" -r "${source_dir}/." "${remote_host}:${integration_path}/"
@@ -54,8 +54,8 @@ if [[ "$destination" == *:* ]]; then
 else
     config_path="${destination%/}"
     integration_path="${config_path}/custom_components/esp_anywhere"
-    backup_path="${config_path}/custom_components/esp_anywhere_backup_${timestamp}"
-    mkdir -p "${config_path}/custom_components"
+    backup_path="${config_path}/esp_anywhere_backups/esp_anywhere_${timestamp}"
+    mkdir -p "${config_path}/custom_components" "${config_path}/esp_anywhere_backups"
     [[ ! -d "$integration_path" ]] || cp -a "$integration_path" "$backup_path"
     mkdir -p "$integration_path"
     cp -a "${source_dir}/." "${integration_path}/"

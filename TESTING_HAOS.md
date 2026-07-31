@@ -45,4 +45,4 @@ python tests/e2e_test.py --mode device-only --ws-url ws://localhost:8787 --token
 - Przełączenie Switcha w interfejsie HA wyśle event (komendę), terminal wykonujący `e2e_test.py` odbierze polecenie z "succeeded", a interfejs w HA zaktualizuje stan suwaka prawidłowo.
 
 ## 6. Przywracanie kopii zapasowej
-W katalogu `custom_components` na swoim urządzeniu HAOS znajdziesz pliki `esp_anywhere_backup_<timestamp>`. Wystarczy skasować zaktualizowany folder i zmienić nazwę folderu z backupem ponownie na `esp_anywhere`, a następnie zrestartować HA.
+Backupy znajdują się w `/config/esp_anywhere_backups`, poza katalogiem aktywnych integracji. Aby przywrócić wersję, zatrzymaj HA Core, skopiuj wybrany backup do `/config/custom_components/esp_anywhere`, a następnie uruchom Core.
