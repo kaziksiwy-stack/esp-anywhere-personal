@@ -19,6 +19,7 @@ from .const import (
     CONF_TRANSPORT, TRANSPORT_MQTT, TRANSPORT_CLOUDFLARE,
     CONF_RELAY_URL, CONF_INSTALLATION_ID, CONF_TOKEN
 )
+from .relay_url import claim_url
 
 def _required_text(value: str) -> str:
     value = value.strip()
@@ -84,12 +85,11 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 relay_url = _required_text(user_input[CONF_RELAY_URL])
                 activation_code = _required_secret(user_input.get("activation_code", ""))
 
-                # Perform claim against the worker via HTTP
+                # Perform claim against the worker via HTTP.
                 session = async_get_clientsession(self.hass)
-                # HTTP endpoint derived from relay WS url
-                http_url = relay_url.replace("wss://", "https://").replace("ws://", "http://")
+                http_url = claim_url(relay_url)
 
-                async with session.post(f"{http_url}/claim", json={"code": activation_code}) as resp:
+                async with session.post(http_url, json={"code": activation_code}) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         token = data["token"]
@@ -112,7 +112,7 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     else:
                         errors["base"] = "cannot_connect"
 
-            except vol.Invalid:
+            except (vol.Invalid, ValueError):
                 errors["base"] = "invalid_input"
             except Exception:
                 errors["base"] = "cannot_connect"
@@ -120,7 +120,7 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="cloudflare",
             data_schema=vol.Schema({
-                vol.Required(CONF_RELAY_URL, default="ws://localhost:8787"): str,
+                vol.Required(CONF_RELAY_URL, default="http://localhost:8787"): str,
                 vol.Required("activation_code"): str,
             }),
             errors=errors

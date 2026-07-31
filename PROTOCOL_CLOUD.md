@@ -9,4 +9,6 @@ Dokument opisuje zarys pakietów transportowanych po rurze WebSocket. Odpowiedni
 ## Wiadomości z Home Assistant
 * `command` -> Posiada "device_id" i "command". Wysłanie `set_entity` załączy żądanie dla uC.
 
+**OTA:** klient prototypowy odpowiada `command_result` ze stanem `rejected` i kodem `ota_unavailable`; instalacja firmware nie jest obecnie dostępna.
+
 *Ograniczenie: Limit wiadomości 32KB. Format UTF-8 JSON.*

@@ -1,5 +1,8 @@
 import { InstallationDO } from './DurableObject';
 
+const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
+const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
+
 export interface Env {
   ESP_ANYWHERE_INSTALLATION: DurableObjectNamespace;
   ADMIN_TOKEN?: string;
@@ -18,11 +21,15 @@ export default {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        const body = (await request.json()) as any;
+        const body = (await request.clone().json()) as any;
         const installationId = body.installation_id;
         const role = body.role; // 'home_assistant' or 'device'
 
-        if (!installationId || (role !== 'home_assistant' && role !== 'device')) {
+        if (
+          typeof installationId !== 'string'
+          || !IDENTIFIER_PATTERN.test(installationId)
+          || (role !== 'home_assistant' && role !== 'device')
+        ) {
           return new Response('Invalid request', { status: 400 });
         }
 
@@ -39,13 +46,16 @@ export default {
     // HTTP API: Claim Code (HA or Device)
     if (request.method === 'POST' && url.pathname === '/claim') {
       try {
-        const body = (await request.json()) as any;
+        const body = (await request.clone().json()) as any;
         const code = body.code;
-        if (!code || typeof code !== 'string' || !code.includes(':')) {
+        const codeMatch = typeof code === 'string'
+          ? ACTIVATION_CODE_PATTERN.exec(code)
+          : null;
+        if (!codeMatch) {
           return new Response('Invalid code format', { status: 400 });
         }
 
-        const installationId = code.split(':')[0];
+        const installationId = codeMatch[1];
         const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
         const stub = env.ESP_ANYWHERE_INSTALLATION.get(id);
 
@@ -65,13 +75,12 @@ export default {
       const installationId = url.searchParams.get('installation_id');
       const role = url.searchParams.get('role'); // "device" or "home_assistant"
 
-      let token = url.searchParams.get('token');
       const authHeader = request.headers.get('Authorization');
-      if (!token && authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.slice(7);
-      }
+      const token = authHeader?.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : null;
 
-      if (!installationId || !role || !token) {
+      if (!installationId || !IDENTIFIER_PATTERN.test(installationId) || !role || !token) {
         return new Response('Missing parameters', { status: 400 });
       }
 

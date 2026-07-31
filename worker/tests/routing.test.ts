@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { InstallationDO } from '../src/DurableObject';
+import { InstallationDO, generateRandomString } from '../src/DurableObject';
 
 describe('InstallationDO Routing & Persistence', () => {
   let mockStorage: any;
@@ -18,6 +18,7 @@ describe('InstallationDO Routing & Persistence', () => {
 
     stubState = {
       acceptWebSocket: vi.fn(),
+      getWebSockets: vi.fn().mockReturnValue([]),
       storage: mockStorage,
     };
 
@@ -67,5 +68,43 @@ describe('InstallationDO Routing & Persistence', () => {
   it('Device ping gets pong', async () => {
     await doInstance.webSocketMessage(deviceSocket, JSON.stringify({ type: 'ping' }));
     expect(deviceSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'pong' }));
+  });
+  it('generates unique hexadecimal secrets with the requested entropy', () => {
+    const values = new Set(Array.from({ length: 32 }, () => generateRandomString(16)));
+    expect(values.size).toBe(32);
+    for (const value of values) expect(value).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('binds every device token to exactly one device and role', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    mockStorage.data.set('device_tokens', {
+      'device-a': { deviceId: 'device-a', token: 'device-a-secret' },
+      'device-b': { deviceId: 'device-b', token: 'device-b-secret' },
+    });
+    await expect(doInstance.isAuthorized('device', 'device-a', 'device-a-secret')).resolves.toBe(true);
+    await expect(doInstance.isAuthorized('device', 'device-b', 'device-a-secret')).resolves.toBe(false);
+    await expect(doInstance.isAuthorized('device', 'device-a', 'ha-secret')).resolves.toBe(false);
+    await expect(doInstance.isAuthorized('home_assistant', null, 'device-a-secret')).resolves.toBe(false);
+    await expect(doInstance.isAuthorized('home_assistant', null, 'ha-secret')).resolves.toBe(true);
+  });
+
+  it('restores HA and device sockets after hibernation', () => {
+    const restoredHa = { deserializeAttachment: vi.fn().mockReturnValue({ role: 'home_assistant' }) };
+    const restoredDevice = { deserializeAttachment: vi.fn().mockReturnValue({ role: 'device', deviceId: 'restored-device' }) };
+    stubState.getWebSockets.mockReturnValue([restoredHa, restoredDevice]);
+    const restored = new InstallationDO(stubState as any, {} as any);
+    expect(restored.haClient).toBe(restoredHa);
+    expect(restored.devices.get('restored-device')).toBe(restoredDevice);
+  });
+  it('replaces only a reconnecting socket with the same identity', () => {
+    const oldDevice = { close: vi.fn(), deserializeAttachment: vi.fn().mockReturnValue({ role: 'device', deviceId: 'device-a' }) };
+    const otherDevice = { close: vi.fn(), deserializeAttachment: vi.fn().mockReturnValue({ role: 'device', deviceId: 'device-b' }) };
+    stubState.getWebSockets.mockReturnValue([oldDevice, otherDevice]);
+    const restored = new InstallationDO(stubState as any, {} as any);
+    const replacement = { close: vi.fn(), serializeAttachment: vi.fn() };
+    restored.registerWebSocket(replacement as any, 'device', 'device-a');
+    expect(oldDevice.close).toHaveBeenCalledWith(1000, 'Replaced');
+    expect(otherDevice.close).not.toHaveBeenCalled();
+    expect(restored.devices.get('device-a')).toBe(replacement);
   });
 });

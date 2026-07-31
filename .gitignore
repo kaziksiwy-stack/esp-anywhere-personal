@@ -1,9 +1,12 @@
 __pycache__/
 *.py[cod]
+.venv/
 .DS_Store
 worker/node_modules/
 tests/__pycache__/
 worker/.wrangler/
+worker/.dev.vars
 worker_output.log
 esp32_client/include/config.h
+esp32_client/include/config.h.bak
 esp32_client/.pio/

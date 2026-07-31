@@ -9,16 +9,19 @@ interface ConnectedClient {
 interface ActivationCode {
   code: string;
   role: 'home_assistant' | 'device';
+  installationId: string;
   expiresAt: number;
 }
 
-function generateRandomString(length: number) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+interface DeviceCredential {
+  deviceId: string;
+  token: string;
+}
+
+export function generateRandomString(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export class InstallationDO {
@@ -34,6 +37,67 @@ export class InstallationDO {
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+    this.restoreWebSockets();
+  }
+
+  restoreWebSockets() {
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as
+        | { role: string; deviceId?: string }
+        | null;
+      if (attachment?.role === 'home_assistant') {
+        this.haClient = ws;
+      } else if (attachment?.role === 'device' && attachment.deviceId) {
+        this.devices.set(attachment.deviceId, ws);
+      }
+      this.errorCounts.set(ws, 0);
+      this.msgCounts.set(ws, 0);
+    }
+  }
+
+  registerWebSocket(
+    server: WebSocket,
+    role: 'device' | 'home_assistant',
+    deviceId: string | null,
+  ) {
+    if (role === 'home_assistant') {
+      if (this.haClient && this.haClient !== server) {
+        try { this.haClient.close(1000, 'Replaced'); } catch (e) {}
+      }
+      this.haClient = server;
+      server.serializeAttachment({ role: 'home_assistant' });
+      this.syncStateToHA(server);
+    } else if (deviceId) {
+      const existing = this.devices.get(deviceId);
+      if (existing && existing !== server) {
+        try { existing.close(1000, 'Replaced'); } catch (e) {}
+      }
+      this.devices.set(deviceId, server);
+      server.serializeAttachment({ role: 'device', deviceId });
+      this.pushPresence(deviceId, true);
+    }
+    this.errorCounts.set(server, 0);
+    this.msgCounts.set(server, 0);
+  }
+
+  async isAuthorized(
+    role: 'device' | 'home_assistant',
+    deviceId: string | null,
+    token: string | null,
+  ): Promise<boolean> {
+    if (role === 'home_assistant') {
+      const expected = await this.state.storage.get<string>('ha_token');
+      return Boolean(expected && token === expected);
+    }
+    if (!deviceId || !token) return false;
+    const credentials =
+      await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
+    const credential = credentials[deviceId];
+    return Boolean(
+      credential
+      && credential.deviceId === deviceId
+      && credential.token === token
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -44,11 +108,11 @@ export class InstallationDO {
       const installationId = body.installation_id;
       const role = body.role;
 
-      const secret = generateRandomString(16);
+      const secret = generateRandomString(12);
       const code = `${installationId}:${secret}`;
       const expiresAt = Date.now() + 10 * 60 * 1000;
 
-      const actCode: ActivationCode = { code, role, expiresAt };
+      const actCode: ActivationCode = { code, role, installationId, expiresAt };
       await this.state.storage.put(`activation_code:${code}`, actCode);
 
       return new Response(JSON.stringify({ code, expiresAt }), {
@@ -59,6 +123,7 @@ export class InstallationDO {
     if (request.method === 'POST' && url.pathname === '/claim') {
       const body = (await request.json()) as any;
       const code = body.code;
+      const deviceId = body.device_id;
 
       const actCode = await this.state.storage.get<ActivationCode>(`activation_code:${code}`);
       if (!actCode) {
@@ -69,20 +134,31 @@ export class InstallationDO {
         return new Response('Code expired', { status: 400 });
       }
 
+      if (
+        actCode.role === 'device'
+        && (
+          typeof deviceId !== 'string'
+          || !/^[a-z0-9][a-z0-9_-]{2,63}$/.test(deviceId)
+        )
+      ) {
+        return new Response('Missing or invalid device_id', { status: 400 });
+      }
+
       await this.state.storage.delete(`activation_code:${code}`);
       const newToken = generateRandomString(32);
 
       if (actCode.role === 'home_assistant') {
         await this.state.storage.put('ha_token', newToken);
       } else {
-        let deviceTokens = await this.state.storage.get<string[]>('device_tokens') || [];
-        deviceTokens.push(newToken);
+        const deviceTokens =
+          await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
+        deviceTokens[deviceId] = { deviceId, token: newToken };
         await this.state.storage.put('device_tokens', deviceTokens);
       }
 
       return new Response(JSON.stringify({
         token: newToken,
-        installation_id: code.split(':')[0],
+        installation_id: actCode.installationId,
         role: actCode.role
       }), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -91,25 +167,16 @@ export class InstallationDO {
       const role = url.searchParams.get('role') as 'device' | 'home_assistant';
       const deviceId = url.searchParams.get('device_id');
 
-      let token = url.searchParams.get('token');
       const authHeader = request.headers.get('Authorization');
-      if (!token && authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.slice(7);
-      }
+      const token = authHeader?.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : null;
 
-      if (role === 'home_assistant') {
-        const expectedHaToken = await this.state.storage.get<string>('ha_token');
-        if (!expectedHaToken || token !== expectedHaToken) {
-          return new Response('Unauthorized HA token', { status: 401 });
-        }
-      } else if (role === 'device') {
-        if (!deviceId) {
-          return new Response('Missing device_id for device role', { status: 400 });
-        }
-        const deviceTokens = await this.state.storage.get<string[]>('device_tokens') || [];
-        if (!token || !deviceTokens.includes(token)) {
-          return new Response('Unauthorized device token', { status: 401 });
-        }
+      if (role === 'device' && !deviceId) {
+        return new Response('Missing device_id for device role', { status: 400 });
+      }
+      if (!await this.isAuthorized(role, deviceId, token)) {
+        return new Response('Unauthorized token', { status: 401 });
       }
 
       const webSocketPair = new WebSocketPair();
@@ -117,25 +184,7 @@ export class InstallationDO {
 
       this.state.acceptWebSocket(server);
 
-      if (role === 'home_assistant') {
-        if (this.haClient) {
-          try { this.haClient.close(1000, 'Replaced'); } catch (e) {}
-        }
-        this.haClient = server;
-        server.serializeAttachment({ role: 'home_assistant' });
-        this.syncStateToHA(server);
-      } else if (role === 'device' && deviceId) {
-        const existing = this.devices.get(deviceId);
-        if (existing) {
-          try { existing.close(1000, 'Replaced'); } catch (e) {}
-        }
-        this.devices.set(deviceId, server);
-        server.serializeAttachment({ role: 'device', deviceId });
-        this.pushPresence(deviceId, true);
-      }
-
-      this.errorCounts.set(server, 0);
-      this.msgCounts.set(server, 0);
+      this.registerWebSocket(server, role, deviceId);
 
       return new Response(null, {
         status: 101,

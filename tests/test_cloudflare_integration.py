@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import sys
 
 # Patch imports to bypass homeassistant version conflicts during tests
+sys.modules['aiohttp'] = MagicMock()
 sys.modules['homeassistant'] = MagicMock()
 sys.modules['homeassistant.config_entries'] = MagicMock()
 class ConfigFlowMock:
@@ -25,6 +26,7 @@ sys.modules['homeassistant.helpers.aiohttp_client'] = MagicMock()
 from custom_components.esp_anywhere.websocket_client import (
     EspAnywhereWebsocketClient, CloudflareSettings
 )
+from custom_components.esp_anywhere.relay_url import claim_url, websocket_url
 
 class TestWebsocketClient(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -57,6 +59,41 @@ class TestWebsocketClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(topic.suffix, "state")
         self.assertEqual(topic.device_id, "dev2")
         self.assertEqual(message.payload, {"power": True})
+
+    async def test_mapping_presence(self):
+        await self.client._async_handle_incoming(json.dumps({
+            "type": "presence", "device_id": "dev1",
+            "payload": {"online": True},
+        }))
+        topic, message = self.handler_mock.call_args[0]
+        self.assertEqual(topic.suffix, "presence")
+        self.assertIs(message.raw["online"], True)
+
+    async def test_mapping_ota_progress(self):
+        await self.client._async_handle_incoming(json.dumps({
+            "type": "ota/progress", "device_id": "dev1",
+            "state": "downloading", "progress": 25, "command_id": "cmd-1",
+        }))
+        topic, message = self.handler_mock.call_args[0]
+        self.assertEqual(topic.suffix, "ota/progress")
+        self.assertEqual(message.raw["progress"], 25)
+
+
+class TestRelayUrls(unittest.TestCase):
+    def test_http_base_urls(self):
+        self.assertEqual(claim_url("http://host:8787"), "http://host:8787/claim")
+        self.assertEqual(websocket_url("http://host:8787", "home-1"),
+                         "ws://host:8787/ws?role=home_assistant&installation_id=home-1")
+
+    def test_https_base_urls(self):
+        self.assertEqual(claim_url("https://relay.example"), "https://relay.example/claim")
+        self.assertEqual(websocket_url("https://relay.example", "home-1"),
+                         "wss://relay.example/ws?role=home_assistant&installation_id=home-1")
+
+    def test_manual_ws_path_is_rejected(self):
+        with self.assertRaises(ValueError):
+            websocket_url("https://relay.example/ws", "home-1")
+
 
 if __name__ == '__main__':
     unittest.main()

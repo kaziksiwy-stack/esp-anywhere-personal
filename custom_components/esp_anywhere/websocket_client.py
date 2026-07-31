@@ -12,6 +12,7 @@ import random
 import aiohttp
 
 from .protocol import Message, ProtocolError, Topic, PROTOCOL_VERSION
+from .relay_url import websocket_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -115,7 +116,9 @@ class EspAnywhereWebsocketClient:
         delay = MIN_RECONNECT_DELAY
         self._session = aiohttp.ClientSession()
 
-        url = f"{self._settings.relay_url}?role=home_assistant&installation_id={self._settings.installation_id}"
+        url = websocket_url(
+            self._settings.relay_url, self._settings.installation_id
+        )
         headers = {"Authorization": f"Bearer {self._settings.token}"}
 
         while not self._stop_event.is_set():
@@ -175,10 +178,17 @@ class EspAnywhereWebsocketClient:
         elif msg_type == "state":
             suffix = "state"
             payload_data = data.get("payload", {})
+        elif msg_type == "presence":
+            suffix = "presence"
+            payload_data = data.get("payload", {})
+            data = {**data, **payload_data}
         elif msg_type == "command_result":
             suffix = "command/result"
             # Command result in runtime expects state in raw, not in payload
             pass
+        elif msg_type == "ota/progress":
+            suffix = msg_type
+            payload_data = data.get("payload", {})
         else:
             return
 

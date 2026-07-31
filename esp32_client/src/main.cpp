@@ -3,174 +3,124 @@
 #include <HTTPClient.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#include <Update.h>
-#include <mbedtls/sha256.h>
-// Na poczet prototypu zakładamy uproszczoną weryfikację Ed25519 - mbedtls na standardowym rdzeniu z reguły wspiera ECDSA, ale mbedtls/ed25519 jest dostępny w nowszych IDF.
-// Z racji ograniczeń wdrożeniowych użyjemy po prostu SHA256 weryfikacji i mockup-u sprawdzania długości podpisu by pokazać architekturę
+#include <Preferences.h>
+#include <WiFiClientSecure.h>
 #include "config.h"
+
+extern const uint8_t x509_crt_bundle[] asm("_binary_x509_crt_bundle_start");
+extern const uint8_t x509_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
+
+size_t caBundleSize() {
+    return static_cast<size_t>(x509_crt_bundle_end - x509_crt_bundle);
+}
 
 #define FIRMWARE_VERSION "1.0.0"
 #define HARDWARE_PROFILE "esp32-c3"
 
 WebSocketsClient webSocket;
-String deviceToken = "";
+Preferences preferences;
+String deviceToken;
+String installationId;
 bool isClaimed = false;
 
-// Hardware pins
-#define LED_PIN 8
-bool ledState = false;
+struct RelayEndpoint {
+    String host;
+    uint16_t port;
+    bool tls;
+};
 
-// OTA Public Key for Manifest (Mocked public key struct)
-const char* PUBLIC_KEY_B64 = "MOCK_KEY_NOT_IMPLEMENTED_ED25519";
+RelayEndpoint relay;
+
+bool ledState = false;
 
 void pushState();
 void pushDiscovery();
 
-void sendOtaStatus(String cmdId, String state, int progress = 0, String err = "") {
-    StaticJsonDocument<256> doc;
-    doc["type"] = "ota/progress";
-    doc["command_id"] = cmdId;
-    doc["state"] = state;
-    doc["progress"] = progress;
-    if (err.length() > 0) doc["error_code"] = err;
+bool parseRelayBase(const String &value, RelayEndpoint &endpoint) {
+    String remainder = value;
+    if (remainder.startsWith("https://")) {
+        endpoint.tls = true;
+        endpoint.port = 443;
+        remainder.remove(0, 8);
+    } else if (remainder.startsWith("http://")) {
+        endpoint.tls = false;
+        endpoint.port = 80;
+        remainder.remove(0, 7);
+    } else if (remainder.startsWith("wss://")) {
+        endpoint.tls = true;
+        endpoint.port = 443;
+        remainder.remove(0, 6);
+    } else if (remainder.startsWith("ws://")) {
+        endpoint.tls = false;
+        endpoint.port = 80;
+        remainder.remove(0, 5);
+    } else {
+        return false;
+    }
 
-    String out;
-    serializeJson(doc, out);
-    webSocket.sendTXT(out);
+    if (remainder.endsWith("/")) remainder.remove(remainder.length() - 1);
+    if (remainder.isEmpty() || remainder.indexOf('/') >= 0) return false;
+
+    int colon = remainder.lastIndexOf(':');
+    if (colon > 0) {
+        String portText = remainder.substring(colon + 1);
+        int parsedPort = portText.toInt();
+        if (parsedPort < 1 || parsedPort > 65535 || String(parsedPort) != portText) return false;
+        endpoint.port = static_cast<uint16_t>(parsedPort);
+        remainder = remainder.substring(0, colon);
+    }
+    if (remainder.isEmpty()) return false;
+    endpoint.host = remainder;
+    return true;
 }
 
-void performOtaUpdate(String manifestUrl, String cmdId) {
-    sendOtaStatus(cmdId, "downloading", 5);
+void resetDeviceCredentials() {
+    preferences.remove("token");
+    preferences.remove("install_id");
+    preferences.remove("device_id");
+    preferences.remove("act_used");
+    deviceToken = "";
+    installationId = "";
+    isClaimed = false;
+}
 
-    if (!manifestUrl.startsWith("https://")) {
-        sendOtaStatus(cmdId, "failed", 0, "non_https_manifest");
-        return;
-    }
-
-    HTTPClient http;
-    http.begin(manifestUrl);
-    int code = http.GET();
-    if (code != 200) {
-        sendOtaStatus(cmdId, "failed", 0, "manifest_fetch_failed");
-        http.end();
-        return;
-    }
-
-    String manifestData = http.getString();
-    http.end();
-
-    // Canonicalization & Ed25519 verification would happen here in a full security build.
-    // For this prototype, we parse the JSON and assume signature passes if present.
-    StaticJsonDocument<1024> doc;
-    DeserializationError err = deserializeJson(doc, manifestData);
-    if (err) {
-        sendOtaStatus(cmdId, "failed", 0, "manifest_parse_failed");
-        return;
-    }
-
-    String hwProfile = doc["hardware_profile"] | "";
-    if (hwProfile != HARDWARE_PROFILE) {
-        sendOtaStatus(cmdId, "failed", 0, "wrong_hardware_profile");
-        return;
-    }
-
-    String fwUrl = doc["firmware"]["url"] | "";
-    String fwSha256 = doc["firmware"]["sha256"] | "";
-    size_t fwSize = doc["firmware"]["size"] | 0;
-
-    if (fwUrl.isEmpty() || fwSize == 0) {
-        sendOtaStatus(cmdId, "failed", 0, "invalid_manifest");
-        return;
-    }
-
-    sendOtaStatus(cmdId, "downloading", 10);
-
-    // Begin Firmware Download
-    http.begin(fwUrl);
-    int fwCode = http.GET();
-    if (fwCode != 200) {
-        sendOtaStatus(cmdId, "failed", 0, "firmware_fetch_failed");
-        http.end();
-        return;
-    }
-
-    int contentLength = http.getSize();
-    if (contentLength > 0 && contentLength != fwSize) {
-        sendOtaStatus(cmdId, "failed", 0, "size_mismatch");
-        http.end();
-        return;
-    }
-
-    bool canBegin = Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN);
-    if (!canBegin) {
-        sendOtaStatus(cmdId, "failed", 0, "update_begin_failed");
-        http.end();
-        return;
-    }
-
-    WiFiClient * stream = http.getStreamPtr();
-    size_t written = 0;
-    uint8_t buff[1024] = { 0 };
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0); // 0 means SHA256
-
-    sendOtaStatus(cmdId, "installing", 20);
-
-    while (http.connected() && (contentLength > 0 ? written < contentLength : true)) {
-        size_t size = stream->available();
-        if (size) {
-            int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
-            Update.write(buff, c);
-            mbedtls_sha256_update(&ctx, buff, c);
-            written += c;
-
-            // Progress report mapping 20->90%
-            int progress = 20 + ((written * 70) / (contentLength > 0 ? contentLength : 1));
-            sendOtaStatus(cmdId, "installing", progress);
-        }
-        delay(1);
-    }
-
-    uint8_t hashOutput[32];
-    mbedtls_sha256_finish(&ctx, hashOutput);
-    mbedtls_sha256_free(&ctx);
-
-    char hashStr[65];
-    for(int i=0; i<32; i++) {
-        sprintf(&hashStr[i*2], "%02x", hashOutput[i]);
-    }
-
-    if (String(hashStr) != fwSha256) {
-        Update.abort();
-        sendOtaStatus(cmdId, "failed", 0, "hash_mismatch");
-        http.end();
-        return;
-    }
-
-    if (Update.end()) {
-        if (Update.isFinished()) {
-            sendOtaStatus(cmdId, "confirmed", 100);
-            delay(1000);
-            ESP.restart();
-        } else {
-            sendOtaStatus(cmdId, "failed", 0, "update_not_finished");
-        }
+void loadDeviceCredentials() {
+    deviceToken = preferences.getString("token", "");
+    installationId = preferences.getString("install_id", "");
+    String storedDeviceId = preferences.getString("device_id", "");
+    if (!deviceToken.isEmpty() && installationId == INSTALLATION_ID && storedDeviceId == DEVICE_ID) {
+        isClaimed = true;
+        Serial.println("[TOKEN] loaded from NVS");
     } else {
-        sendOtaStatus(cmdId, "failed", 0, "update_error");
+        deviceToken = "";
+        installationId = "";
+        isClaimed = false;
     }
-
-    http.end();
 }
 
 void performClaim() {
     Serial.println("Performing claim...");
+    if (preferences.getBool("act_used", false)) {
+        Serial.println("Activation code was already consumed; service reset required.");
+        return;
+    }
+
     HTTPClient http;
-    http.begin(String(HTTP_RELAY_URL) + "/claim");
+    String claimUrl = String(relay.tls ? "https://" : "http://")
+        + relay.host + ":" + relay.port + "/claim";
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
+    if (relay.tls) {
+        secureClient.setCACertBundle(x509_crt_bundle, caBundleSize());
+        http.begin(secureClient, claimUrl);
+    } else {
+        http.begin(plainClient, claimUrl);
+    }
     http.addHeader("Content-Type", "application/json");
 
     StaticJsonDocument<200> doc;
     doc["code"] = ACTIVATION_CODE;
+    doc["device_id"] = DEVICE_ID;
     String requestBody;
     serializeJson(doc, requestBody);
 
@@ -178,10 +128,23 @@ void performClaim() {
     if (httpResponseCode == 200) {
         String response = http.getString();
         StaticJsonDocument<256> respDoc;
-        deserializeJson(respDoc, response);
-        deviceToken = respDoc["token"].as<String>();
-        isClaimed = true;
-        Serial.println("Claim successful! Token received.");
+        DeserializationError error = deserializeJson(respDoc, response);
+        String claimedRole = respDoc["role"] | "";
+        String claimedDeviceToken = respDoc["token"] | "";
+        String claimedInstallationId = respDoc["installation_id"] | "";
+        if (!error && claimedRole == "device" && !claimedDeviceToken.isEmpty()
+            && claimedInstallationId == INSTALLATION_ID) {
+            deviceToken = claimedDeviceToken;
+            installationId = claimedInstallationId;
+            preferences.putString("token", deviceToken);
+            preferences.putString("install_id", installationId);
+            preferences.putString("device_id", DEVICE_ID);
+            preferences.putBool("act_used", true);
+            isClaimed = true;
+            Serial.println("Claim successful; credentials stored.");
+        } else {
+            Serial.println("Claim response was invalid.");
+        }
     } else {
         Serial.printf("Claim failed. Code: %d\n", httpResponseCode);
     }
@@ -223,18 +186,16 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                             pushState();
                         }
                     } else if (cmd == "install_update") {
-                        String manifestUrl = doc["parameters"]["manifest_url"] | "";
-                        // Acknowledge command first
-                        StaticJsonDocument<200> ack;
+                        StaticJsonDocument<256> ack;
                         ack["type"] = "command_result";
                         ack["command_id"] = cmdId;
-                        ack["state"] = "succeeded";
+                        ack["state"] = "rejected";
+                        JsonObject error = ack.createNestedObject("error");
+                        error["code"] = "ota_unavailable";
+                        error["message"] = "OTA is unavailable in this firmware";
                         String ackStr;
                         serializeJson(ack, ackStr);
                         webSocket.sendTXT(ackStr);
-
-                        // Execute OTA
-                        performOtaUpdate(manifestUrl, cmdId);
                     }
                 }
             }
@@ -273,6 +234,7 @@ void pushDiscovery() {
     String out;
     serializeJson(doc, out);
     webSocket.sendTXT(out);
+    Serial.println("[DISCOVERY] sent");
 }
 
 void pushState() {
@@ -285,12 +247,23 @@ void pushState() {
     String out;
     serializeJson(doc, out);
     webSocket.sendTXT(out);
+    Serial.println("[STATE] sent");
 }
 
 void setup() {
     Serial.begin(115200);
+    delay(750);
+    Serial.println("[BOOT] ESP Anywhere starting");
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
+
+    preferences.begin("esp-anywhere", false);
+    loadDeviceCredentials();
+
+    if (!parseRelayBase(RELAY_URL, relay)) {
+        Serial.println("Invalid RELAY_URL base address.");
+        while (true) delay(1000);
+    }
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
@@ -302,10 +275,16 @@ void setup() {
         if (!isClaimed) delay(5000);
     }
 
-    int port = 8787;
-    String host = "192.168.1.100";
-
-    webSocket.begin(host, port, "/ws?role=device&device_id=" + String(DEVICE_ID));
+    String wsPath = "/ws?role=device&installation_id=" + installationId
+        + "&device_id=" + String(DEVICE_ID);
+    if (relay.tls) {
+        webSocket.beginSslWithBundle(
+            relay.host.c_str(), relay.port, wsPath.c_str(),
+            x509_crt_bundle, caBundleSize()
+        );
+    } else {
+        webSocket.begin(relay.host, relay.port, wsPath);
+    }
     webSocket.setExtraHeaders(("Authorization: Bearer " + deviceToken).c_str());
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(5000);
