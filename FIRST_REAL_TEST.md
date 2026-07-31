@@ -126,6 +126,7 @@ Wartości używane w procedurze:
    #define ACTIVATION_CODE "KOD_Z_KROKU_A_5"
    #define DEVICE_ID "esp32_c3_001"
    #define LED_PIN 8
+   #define LED_ACTIVE_LOW true
    ```
 
 

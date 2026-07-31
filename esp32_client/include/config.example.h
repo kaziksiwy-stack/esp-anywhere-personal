@@ -7,4 +7,5 @@
 #define INSTALLATION_ID "first-real-test"
 #define ACTIVATION_CODE "first-real-test:secret_code"
 #define DEVICE_ID "esp32_c3_001"
-#define LED_PIN 9
+#define LED_PIN 8
+#define LED_ACTIVE_LOW true

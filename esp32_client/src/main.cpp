@@ -33,6 +33,11 @@ RelayEndpoint relay;
 
 bool ledState = false;
 
+void writeLedOutput() {
+    const bool pinHigh = LED_ACTIVE_LOW ? !ledState : ledState;
+    digitalWrite(LED_PIN, pinHigh ? HIGH : LOW);
+}
+
 void pushState();
 void pushDiscovery();
 
@@ -174,7 +179,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                         String entityId = doc["parameters"]["entity_id"] | "";
                         if (entityId == "led_switch") {
                             ledState = doc["parameters"]["value"] | false;
-                            digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+                            writeLedOutput();
 
                             StaticJsonDocument<200> ack;
                             ack["type"] = "command_result";
@@ -255,7 +260,7 @@ void setup() {
     delay(750);
     Serial.println("[BOOT] ESP Anywhere starting");
     pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, LOW);
+    writeLedOutput();
 
     preferences.begin("esp-anywhere", false);
     loadDeviceCredentials();
