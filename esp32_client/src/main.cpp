@@ -7,6 +7,10 @@
 #include <WiFiClientSecure.h>
 #include "config.h"
 
+#ifndef LED_ACTIVE_LOW
+#define LED_ACTIVE_LOW false
+#endif
+
 extern const uint8_t x509_crt_bundle[] asm("_binary_x509_crt_bundle_start");
 extern const uint8_t x509_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
 
