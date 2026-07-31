@@ -19,6 +19,12 @@ interface DeviceCredential {
   token: string;
 }
 
+interface AuditEvent { event: 'device_activation_created'; deviceId: string; timestamp: number; }
+const ACTIVATION_TTL_MS = 5 * 60 * 1000;
+const RATE_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT = 5;
+const MAX_DEVICES = 64;
+
 export function generateRandomString(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
@@ -122,6 +128,36 @@ export class InstallationDO {
       });
     }
 
+    if (request.method === 'POST' && url.pathname === '/ha/device-activation-code') {
+      const body = (await request.json()) as any;
+      const installationId = body.installation_id;
+      const deviceId = body.device_id;
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!await this.isAuthorized('home_assistant', null, token)) return new Response('Unauthorized', { status: 401 });
+      const deviceTokens = await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
+      if (Object.keys(deviceTokens).length >= MAX_DEVICES) return new Response('Device limit reached', { status: 409 });
+      if (deviceTokens[deviceId]) return new Response('Device already exists', { status: 409 });
+      const now = Date.now();
+      const issued = (await this.state.storage.get<number[]>('ha_activation_issued') || []).filter(timestamp => now - timestamp < RATE_WINDOW_MS);
+      if (issued.length >= RATE_LIMIT) return new Response('Rate limit exceeded', { status: 429 });
+      const pending = await this.state.storage.get<Record<string, number>>('pending_device_ids') || {};
+      for (const [id, expiresAt] of Object.entries(pending)) if (expiresAt <= now) delete pending[id];
+      if (pending[deviceId]) return new Response('Device activation already pending', { status: 409 });
+      const code = `${installationId}:${generateRandomString(12)}`;
+      const expiresAt = now + ACTIVATION_TTL_MS;
+      const actCode: ActivationCode = { code, role: 'device', installationId, expiresAt, deviceId };
+      pending[deviceId] = expiresAt;
+      issued.push(now);
+      const audit = await this.state.storage.get<AuditEvent[]>('audit_events') || [];
+      audit.push({ event: 'device_activation_created', deviceId, timestamp: now });
+      await this.state.storage.put(`activation_code:${code}`, actCode);
+      await this.state.storage.put('pending_device_ids', pending);
+      await this.state.storage.put('ha_activation_issued', issued);
+      await this.state.storage.put('audit_events', audit.slice(-100));
+      return Response.json({ code, expiresAt, installation_id: installationId, device_id: deviceId }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     if (request.method === 'POST' && url.pathname === '/claim') {
       const body = (await request.json()) as any;
       const code = body.code;
@@ -137,6 +173,11 @@ export class InstallationDO {
       if (actCode.role === 'device' && (typeof deviceId !== 'string' || !/^[a-z0-9][a-z0-9_-]{2,63}$/.test(deviceId))) return new Response('Missing or invalid device_id', { status: 400 });
       if (actCode.role === 'device' && actCode.deviceId !== deviceId) return new Response('Device mismatch', { status: 400 });
       await this.state.storage.delete(`activation_code:${code}`);
+      if (actCode.role === 'device') {
+        const pending = await this.state.storage.get<Record<string, number>>('pending_device_ids') || {};
+        delete pending[deviceId];
+        await this.state.storage.put('pending_device_ids', pending);
+      }
       const newToken = generateRandomString(32);
       if (actCode.role === 'home_assistant') await this.state.storage.put('ha_token', newToken);
       else {

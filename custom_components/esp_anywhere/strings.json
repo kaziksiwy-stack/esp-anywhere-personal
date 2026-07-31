@@ -43,5 +43,29 @@
         }
       }
     }
+  },
+  "options": {
+    "error": {
+      "invalid_device_id": "Use 3–64 lowercase letters, numbers, hyphens or underscores.",
+      "cannot_create_code": "Home Assistant could not prepare the device. Try again.",
+      "rate_limited": "Too many devices were prepared recently. Wait one minute."
+    },
+    "abort": {"cloudflare_required": "Browser provisioning requires the Cloudflare transport."},
+    "step": {
+      "init": {
+        "title": "Add device",
+        "description": "Give the new device a friendly name and select its board.",
+        "data": {"device_name": "Device name", "profile_id": "Hardware profile"}
+      },
+      "confirm": {
+        "title": "Create device configuration",
+        "description": "{device_name} will use {profile_id}. The generated ID is stable after activation; advanced users may change it now.",
+        "data": {"device_id": "Advanced device ID"}
+      },
+      "provision": {
+        "title": "Device is ready to flash",
+        "description": "[Open the secure device provisioning page]({provision_url}) in Chrome or Edge.\n\nKeep this window open until the device appears in Home Assistant."
+      }
+    }
   }
 }

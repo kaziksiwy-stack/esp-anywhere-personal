@@ -1,100 +1,62 @@
 # ESP Anywhere Personal
 
-ESP Anywhere Personal connects Home Assistant to ESP32 devices through either a
-Cloudflare Worker WebSocket relay or a private MQTT broker. The Cloudflare path
-uses one-time activation codes, device-bound credentials, encrypted WSS traffic,
-and a Durable Object per installation.
+ESP Anywhere connects a supported ESP32-C3 to Home Assistant through an encrypted Cloudflare relay. Normal setup uses HACS and a browser—no terminal, Git, PlatformIO, config.h, ADMIN_TOKEN, installation ID, or manually chosen device ID.
 
-## Current release
+> v0.3.0 is under development on a separate branch. Staging provisioner: https://esp-anywhere-worker-staging.esp-anywhere-worker.workers.dev/provision. Stable v0.2.1 remains unchanged. This private alpha must not control safety-critical equipment.
 
-- Home Assistant integration: `0.2.1`
-- Worker: `esp-anywhere-worker`
-- Production relay: `https://esp-anywhere-worker.esp-anywhere-worker.workers.dev`
-- ESP32-C3 firmware: discovery, state, presence, commands, credential persistence,
-  and reconnect; OTA commands are explicitly rejected until signed OTA is ready.
+## Supported hardware
 
-## Home Assistant installation
+- Espressif ESP32-C3-DevKitM-1
+- native USB CDC, 4 MB flash, huge_app.csv
+- board LED on GPIO 8, active-low
 
-Add `https://github.com/kaziksiwy-stack/esp-anywhere-personal` to HACS as a
-custom Integration repository, install **ESP Anywhere Personal**, and restart
-Home Assistant.
+Only profiles in custom_components/esp_anywhere/device_profiles.json appear in the UI.
 
-For the Cloudflare transport, generate a one-time HA activation code:
+## Install with HACS
 
-```bash
-read -rsp "ADMIN_TOKEN: " ADMIN_TOKEN; echo
-./scripts/create_activation_code.sh \
-  https://esp-anywhere-worker.esp-anywhere-worker.workers.dev \
-  "$ADMIN_TOKEN" my-home ha
-unset ADMIN_TOKEN
-```
+1. Add this repository to HACS as an Integration.
+2. Install ESP Anywhere Personal and restart Home Assistant.
+3. Add it from Settings → Devices & services.
+4. Enter the public relay and one-time HA activation code supplied by the service administrator.
 
-In the integration form select **Cloudflare WebSocket**, enter the production
-relay URL above and the generated activation code. The activation code is
-consumed once; Home Assistant stores only the permanent installation token.
+The administrator code is needed once for HA. End users never receive Worker ADMIN_TOKEN.
 
-The MQTT transport remains available for users with a private TLS MQTT broker.
+## Add your first ESP
 
-## ESP32-C3 provisioning
+HA → Configure ESP Anywhere → Add device → name + board → short-lived browser session → USB flash → Wi-Fi over Web Serial → claim → WSS → automatic discovery in the same HA entry
 
-Run the guided installer (no manual config editing is required):
+1. Open the configured integration and choose Configure / Add device.
+2. Enter a friendly name and select ESP32-C3-DevKitM-1.
+3. Confirm the automatically generated stable ID.
+4. Open the short-lived provisioning page shown by HA.
+5. In desktop Chrome or Edge on Windows/Linux, connect the ESP with a USB data cable.
+6. Select the port, flash generic firmware, enter Wi-Fi and choose Save configuration and connect.
+7. Wait for Wi-Fi, claim, Worker, discovery and visible in Home Assistant.
+8. Test Connectivity, Uptime, Firmware and Board LED.
 
-```bash
-./scripts/provision_esp32.sh
-```
+Wi-Fi and activation code never enter a URL or public firmware. They exist briefly in browser memory, travel over USB, are stored in NVS, and the code is deleted after claim.
 
-It hides the Wi-Fi password, validates DEVICE_ID, creates ignored config.h, builds, detects /dev/serial/by-id, optionally erases, uploads and monitors. For production WSS, set `RELAY_URL` to the HTTPS relay. The firmware uses
-the built-in trusted CA bundle for HTTPS and WSS. Build and upload with PlatformIO:
+See docs/QUICK_START.md, docs/WEB_PROVISIONING.md, docs/TROUBLESHOOTING.md and docs/DEVICE_PROFILES.md.
 
-```bash
-cd esp32_client
-platformio run
-platformio run --target upload --upload-port /dev/ttyUSB0
-platformio device monitor --port /dev/ttyUSB0 --baud 115200
-```
+## Alpha limitations
 
-See [FIRST_REAL_TEST.md](FIRST_REAL_TEST.md) for the detailed LAN test and
-rollback procedure. Protocol and security decisions are documented in
-[PROTOCOL_CLOUD.md](PROTOCOL_CLOUD.md), [ACTIVATION_FLOW.md](ACTIVATION_FLOW.md),
-and [ARCHITECTURE_CLOUD.md](ARCHITECTURE_CLOUD.md).
+- Web Serial requires desktop Chrome/Edge; Safari, Firefox, iOS and Android are unsupported. The integration hands off from HA to the public HTTPS provisioner, so a local HA opened over HTTP remains supported.
+- A person must confirm the USB chooser and physical LED.
+- OTA remains disabled pending signatures and rollback.
+- Limit: 64 devices per installation and 5 prepared codes per minute.
+- There is no end-user account or revocation panel yet.
 
-## Worker development and deployment
+## Security model
 
-```bash
-cd worker
-npm test
-npx tsc --noEmit
-npx wrangler dev --ip 0.0.0.0
-npx wrangler deploy
-```
+Each installation has a Durable Object and separate HA/device credentials. HA creates a five-minute single-use code only for a new device in its own installation. Device tokens cannot create codes. Credentials bind installation and device IDs. Production uses HTTPS/WSS with CA verification. Audit records contain event type, device ID and time—not tokens, codes, Wi-Fi or secret payloads.
 
-`ADMIN_TOKEN` must exist as a Wrangler secret in production. Local development
-loads it from ignored `worker/.dev.vars`. Never commit activation codes,
-permanent tokens, Wi-Fi credentials, `.dev.vars`, or `config.h`.
+See SECURITY.md and THREAT_MODEL.md.
 
-## Verification
+## Advanced: CLI, self-hosting and development
 
-The repository includes Worker unit tests, Home Assistant transport tests, a
-PlatformIO build, and a production E2E smoke test covering activation, claim,
-discovery, state, presence, command routing, and command acknowledgement.
+scripts/provision_esp32.sh remains a developer/recovery path. It accepts a code or HA-role token from ESP_ANYWHERE_HA_TOKEN_FILE; it never needs ADMIN_TOKEN. Legacy config.h devices remain compatible with v0.2.1.
 
-## Architecture and user status
-
-ESP32-C3 -- HTTPS/WSS --> Worker + installation Durable Object <-- WSS -- Home Assistant. Tailscale is not required because both clients connect outbound. HA creates firmware, uptime, connectivity and Board LED with stable device/entity identifiers.
-
-Supported hardware: ESPressif ESP32-C3-DevKitM-1, native USB CDC, active-low board LED on GPIO 8. Other boards need a reviewed hardware profile.
-
-## Troubleshooting and limitations
-
-Use a USB data cable and check /dev/serial/by-id. Codes are single-use, expire in 10 minutes and are bound to installation, role and DEVICE_ID. Check the serial monitor for Wi-Fi, claim and WebSocket status. OTA is explicitly disabled until signed verification and rollback exist.
-
-This is a private alpha, not for safety-critical automation. There is one HA socket per installation and no revocation UI, fleet dashboard, broad board matrix or historical database.
-
-## Developer and security documentation
-
-Repository layout: HA integration in custom_components, Worker in worker, firmware in esp32_client, scripts in scripts and tests in tests. See SECURITY.md, THREAT_MODEL.md, ARCHITECTURE_CLOUD.md, PROTOCOL_CLOUD.md and RELEASING.md. Run ./scripts/release_gate.sh before release.
-
-Roadmap for v0.3.0: signed OTA, token revocation/device removal, more hardware profiles, observability, CI releases and longer fault-injection tests.
+Backend administrators set ADMIN_TOKEN only to bootstrap HA. See docs/SELF_HOSTING.md, PROTOCOL_CLOUD.md, ARCHITECTURE_CLOUD.md and RELEASING.md. MQTT remains an advanced transport.
 
 ## License
 

@@ -2,6 +2,16 @@ name = "esp-anywhere-worker"
 main = "src/index.ts"
 compatibility_date = "2024-02-08"
 
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+[[rules]]
+type = "Data"
+globs = ["**/*.bin"]
+fallthrough = true
+
 [dev]
 port = 8788
 local_protocol = "http"
@@ -12,5 +22,16 @@ bindings = [
 ]
 
 [[migrations]]
+tag = "v1"
+new_sqlite_classes = ["InstallationDO"]
+
+[env.staging]
+name = "esp-anywhere-worker-staging"
+
+[[env.staging.durable_objects.bindings]]
+name = "ESP_ANYWHERE_INSTALLATION"
+class_name = "InstallationDO"
+
+[[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["InstallationDO"]

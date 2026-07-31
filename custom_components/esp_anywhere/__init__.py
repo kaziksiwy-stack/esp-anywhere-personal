@@ -16,6 +16,13 @@ from .runtime import EspAnywhereRuntime
 PLATFORMS = ["binary_sensor", "button", "sensor", "switch", "text", "update"]
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the local browser provisioning application."""
+    from .provisioning import register_views
+    register_views(hass)
+    return True
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate pre-0.2.1 entries without changing their credentials."""
     if entry.version > 3:

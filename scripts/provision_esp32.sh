@@ -26,11 +26,15 @@ else
     valid_id "$device_id" || { printf 'Invalid DEVICE_ID.\n' >&2; exit 2; }
     prompt "Relay base URL [${relay_url}]" entered_relay
     [[ -z "$entered_relay" ]] || relay_url="${entered_relay%/}"
-    read -r -p "Paste activation code, or press Enter to generate it: " activation_code
+    read -r -p "Paste device activation code, or press Enter to use an HA token: " activation_code
     if [[ -z "$activation_code" ]]; then
-        read -r -s -p "Worker ADMIN_TOKEN: " admin_token; printf '\n'
-        response="$(${repo_root}/scripts/create_activation_code.sh "$relay_url" "$admin_token" "$installation_id" device "$device_id")"
-        unset admin_token
+        if [[ -n "${ESP_ANYWHERE_HA_TOKEN_FILE:-}" ]]; then
+            ha_token="$(<"$ESP_ANYWHERE_HA_TOKEN_FILE")"
+        else
+            read -r -s -p "Home Assistant role token (advanced): " ha_token; printf '\n'
+        fi
+        response="$(${repo_root}/scripts/create_device_code_with_ha.sh "$relay_url" "$ha_token" "$installation_id" "$device_id")"
+        unset ha_token
         activation_code="$(printf '%s\n' "$response" | sed -n 's/^activation_code=//p')"
     fi
 fi

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ESP Anywhere — dodaj urządzenie</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+  <style>
+    :root{color-scheme:light dark;font-family:system-ui,sans-serif}body{max-width:760px;margin:0 auto;padding:24px;background:#10151d;color:#edf3fa}
+    .card{background:#192330;border:1px solid #33465d;border-radius:16px;padding:22px;margin:16px 0}h1{margin-top:0}label{display:block;margin:14px 0 6px}
+    input{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid #60758d;background:#0f1720;color:inherit;font-size:16px}
+    button,esp-web-install-button{display:inline-block;margin:14px 10px 0 0}button{padding:12px 18px;border:0;border-radius:9px;background:#03a9f4;color:#00131d;font-weight:700;cursor:pointer}
+    button:disabled{opacity:.5}.danger{background:#fb7185}.stage{padding:8px 0;border-bottom:1px solid #2b3b4d}.stage[data-state=ok]::before{content:'✓ ';color:#4ade80}.stage[data-state=active]::before{content:'● ';color:#38bdf8}.stage[data-state=error]::before{content:'! ';color:#fb7185}.muted{color:#a9b8c8}.error{color:#fecaca}
+  </style>
+</head>
+<body>
+  <h1>Dodaj ESP Anywhere</h1>
+  <p class="muted">Chrome lub Edge na komputerze z Windows albo Linux. Dane Wi‑Fi trafiają bezpośrednio z tej przeglądarki do ESP przez USB.</p>
+  <section class="card">
+    <h2>1. Podłącz i wgraj</h2>
+    <p>Użyj przewodu USB obsługującego dane. Wybierz port płytki ESP32-C3.</p>
+    <esp-web-install-button id="installer" manifest="/provision/manifest.json">
+      <button slot="activate">Wybierz port i wgraj firmware</button>
+      <span slot="unsupported">Ta przeglądarka nie obsługuje Web Serial. Otwórz stronę w Chrome lub Edge na komputerze.</span>
+      <span slot="not-allowed">Brak dostępu do portu USB. Zamknij inne monitory portu i spróbuj ponownie.</span>
+    </esp-web-install-button>
+  </section>
+  <section class="card">
+    <h2>2. Wi‑Fi i połączenie</h2>
+    <label for="ssid">Nazwa sieci Wi‑Fi</label><input id="ssid" autocomplete="off" maxlength="32">
+    <label for="password">Hasło Wi‑Fi</label><input id="password" type="password" autocomplete="new-password" maxlength="64">
+    <button id="configure">Zapisz konfigurację i połącz</button>
+    <p id="message" class="muted"></p>
+  </section>
+  <section class="card" aria-live="polite">
+    <h2>Status</h2>
+    <div class="stage" id="detected">Wykryto płytkę</div>
+    <div class="stage" id="flashing">Flashowanie firmware</div>
+    <div class="stage" id="config_saved">Zapis konfiguracji</div>
+    <div class="stage" id="wifi_connected">Łączenie z Wi‑Fi</div>
+    <div class="stage" id="claim_success">Aktywacja urządzenia</div>
+    <div class="stage" id="worker_connected">Połączenie z Workerem</div>
+    <div class="stage" id="discovery_sent">Wysłanie informacji o urządzeniu</div>
+    <div class="stage" id="visible_in_ha">Urządzenie widoczne w Home Assistant</div>
+  </section>
+  <details class="card">
+    <summary>Opcje zaawansowane</summary>
+    <p class="muted">Reset usuwa z urządzenia Wi‑Fi, token i całą konfigurację ESP Anywhere. Nie usuwa wpisu w Home Assistant.</p>
+    <button id="factory-reset" class="danger">Przywróć ustawienia fabryczne</button>
+  </details>
+<script>
+const trustedOpener=window.opener;
+let haOrigin=null;
+const message=document.getElementById('message');
+let privateConfig=null;
+const setStage=(id,state)=>{const node=document.getElementById(id);if(node)node.dataset.state=state};
+const friendly=(error)=>{
+  if(error?.name==='NotFoundError')return 'Anulowano wybór portu. Nic nie zostało zmienione.';
+  if(error?.name==='SecurityError')return 'Przeglądarka nie ma uprawnień do portu USB.';
+  if(error?.name==='NetworkError')return 'Port jest zajęty. Zamknij monitor portu i spróbuj ponownie.';
+  return 'Nie udało się skonfigurować urządzenia. Odłącz je, podłącz ponownie i spróbuj jeszcze raz.';
+};
+async function loadConfig(){
+  if(!window.isSecureContext){message.textContent='Ta strona musi być otwarta przez HTTPS. Skonfiguruj bezpieczny adres Home Assistant i otwórz ją ponownie.';document.getElementById('configure').disabled=true;return;}
+  if(!('serial' in navigator)){message.textContent='Nieobsługiwana przeglądarka. Użyj Chrome lub Edge na komputerze.';document.getElementById('configure').disabled=true;return;}
+  if(!trustedOpener)throw new Error('opener');
+  privateConfig=await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('session')),15000);
+    const receive=(event)=>{if(event.source!==trustedOpener||event.data?.type!=='esp-anywhere-config')return;clearTimeout(timer);window.removeEventListener('message',receive);haOrigin=event.origin;resolve(event.data.config);};
+    window.addEventListener('message',receive);
+    trustedOpener.postMessage({type:'esp-anywhere-ready'},'*');
+  });
+}
+async function pollHA(){
+  if(trustedOpener&&haOrigin)trustedOpener.postMessage({type:'esp-anywhere-discovery'},haOrigin);
+  message.textContent='Urządzenie połączone. Czekam na potwierdzenie z Home Assistant…';
+}
+document.getElementById('configure').addEventListener('click',async()=>{
+  message.textContent='';
+  const ssid=document.getElementById('ssid').value.trim();const wifiPassword=document.getElementById('password').value;
+  if(!ssid||!wifiPassword){message.textContent='Podaj nazwę i hasło Wi‑Fi.';return;}
+  let port;let reader;
+  try{
+    if(!privateConfig)await loadConfig();
+    port=await navigator.serial.requestPort({filters:[{usbVendorId:0x303a}]});setStage('detected','ok');
+    await port.open({baudRate:115200});
+    const writer=port.writable.getWriter();
+    const packet={type:'provision',wifi_ssid:ssid,wifi_password:wifiPassword,relay_url:privateConfig.relay_url,installation_id:privateConfig.installation_id,activation_code:privateConfig.activation_code,device_id:privateConfig.device_id,device_name:privateConfig.device_name,profile_id:privateConfig.profile_id};
+    await writer.write(new TextEncoder().encode(JSON.stringify(packet)+'\n'));writer.releaseLock();
+    document.getElementById('password').value='';packet.wifi_password='';packet.activation_code='';privateConfig.activation_code='';
+    reader=port.readable.pipeThrough(new TextDecoderStream()).getReader();let buffer='';const deadline=Date.now()+90000;
+    while(Date.now()<deadline){const {value,done}=await reader.read();if(done)break;buffer+=value;const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines){
+      let event;try{event=JSON.parse(line)}catch{continue}if(event.stage)setStage(event.stage,event.status==='ok'?'ok':event.status==='error'?'error':'active');
+      if(event.error){message.textContent=event.message||'Urządzenie zgłosiło błąd.';message.className='error';await reader.cancel();return;}
+      if(event.stage==='discovery_sent'&&event.status==='ok'){reader.cancel();await pollHA();return;}
+    }}}
+  catch(error){message.textContent=friendly(error);message.className='error';}
+  finally{if(reader){reader.releaseLock();}if(port?.readable?.locked===false&&port?.writable?.locked===false)await port.close().catch(()=>{});}
+});
+document.getElementById('factory-reset').addEventListener('click',async()=>{
+  if(!confirm('Usunąć Wi‑Fi, token i całą konfigurację ESP Anywhere z tej płytki?'))return;
+  let port;
+  try{
+    port=await navigator.serial.requestPort({filters:[{usbVendorId:0x303a}]});
+    await port.open({baudRate:115200});
+    const writer=port.writable.getWriter();
+    await writer.write(new TextEncoder().encode('{"type":"factory_reset","confirm":"ERASE"}\n'));
+    writer.releaseLock();message.className='muted';message.textContent='Reset zlecony. Po restarcie płytka jest gotowa do ponownej konfiguracji.';
+  }catch(error){message.textContent=friendly(error);message.className='error';}
+  finally{if(port?.readable?.locked===false&&port?.writable?.locked===false)await port.close().catch(()=>{});}
+});
+document.querySelector("[slot=activate]").addEventListener("click",()=>{setStage("detected","active");setStage("flashing","active")});
+window.addEventListener('message',event=>{if(event.source===trustedOpener&&event.origin===haOrigin&&event.data?.type==='esp-anywhere-visible'){setStage('visible_in_ha','ok');message.textContent='Gotowe — urządzenie pojawiło się w Home Assistant.';}});
+loadConfig().catch(()=>{message.textContent='Nie udało się odebrać krótkotrwałej konfiguracji z Home Assistant. Uruchom dodawanie urządzenia ponownie.';});
+</script>
+</body></html>

@@ -1,4 +1,6 @@
 import { InstallationDO } from './DurableObject';
+import provisionHtml from './provision-v2.html';
+import firmwareImage from './firmware-fa2dcc.bin';
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
@@ -13,6 +15,22 @@ export { InstallationDO };
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (request.method === 'GET' && url.pathname === '/provision') {
+      return new Response(provisionHtml, { headers: {
+        'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+        'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
+      } });
+    }
+    if (request.method === 'GET' && url.pathname === '/provision/manifest.json') {
+      return Response.json({ name: 'ESP Anywhere', version: '0.3.0-beta.1',
+        builds: [{ chipFamily: 'ESP32-C3', parts: [{ path: '/provision/firmware.bin', offset: 0 }] }],
+        new_install_prompt_erase: true }, { headers: { 'Cache-Control': 'public, max-age=300' } });
+    }
+    if (request.method === 'GET' && url.pathname === '/provision/firmware.bin') {
+      return new Response(firmwareImage, { headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' } });
+    }
 
     // HTTP API: Create Activation Code (Admin only)
     if (request.method === 'POST' && url.pathname === '/admin/activation-code') {
@@ -64,6 +82,22 @@ export default {
 
         return stub.fetch(request);
       } catch (e) {
+        return new Response('Bad request', { status: 400 });
+      }
+    }
+
+    if (request.method === 'POST' && url.pathname === '/ha/device-activation-code') {
+      try {
+        const body = (await request.clone().json()) as any;
+        const installationId = body.installation_id;
+        const deviceId = body.device_id;
+        const authHeader = request.headers.get('Authorization');
+        if (typeof installationId !== 'string' || !IDENTIFIER_PATTERN.test(installationId)
+          || typeof deviceId !== 'string' || !IDENTIFIER_PATTERN.test(deviceId)
+          || !authHeader?.startsWith('Bearer ')) return new Response('Invalid request', { status: 400 });
+        const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+        return env.ESP_ANYWHERE_INSTALLATION.get(id).fetch(request);
+      } catch {
         return new Response('Bad request', { status: 400 });
       }
     }

@@ -32,5 +32,18 @@
         }
       }
     }
+  },
+  "options": {
+    "error": {
+      "invalid_device_id": "Użyj 3–64 małych liter, cyfr, myślników lub podkreśleń.",
+      "cannot_create_code": "Home Assistant nie może przygotować urządzenia. Spróbuj ponownie.",
+      "rate_limited": "Ostatnio przygotowano zbyt wiele urządzeń. Poczekaj minutę."
+    },
+    "abort": {"cloudflare_required": "Provisioning w przeglądarce wymaga transportu Cloudflare."},
+    "step": {
+      "init": {"title": "Dodaj urządzenie", "description": "Nadaj nazwę i wybierz płytkę.", "data": {"device_name": "Nazwa urządzenia", "profile_id": "Profil sprzętowy"}},
+      "confirm": {"title": "Utwórz konfigurację urządzenia", "description": "{device_name} użyje {profile_id}. ID będzie stałe po aktywacji; użytkownik zaawansowany może je teraz zmienić.", "data": {"device_id": "Zaawansowane ID urządzenia"}},
+      "provision": {"title": "Urządzenie jest gotowe do wgrania", "description": "[Otwórz bezpieczną stronę przygotowania urządzenia]({provision_url}) w Chrome lub Edge.\n\nNie zamykaj okna, dopóki urządzenie nie pojawi się w Home Assistant."}
+    }
   }
 }

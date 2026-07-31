@@ -20,6 +20,7 @@ from .const import (
     CONF_RELAY_URL, CONF_INSTALLATION_ID, CONF_TOKEN
 )
 from .relay_url import claim_url
+from .provisioning import async_create_session, generate_device_id, load_profiles
 
 def _required_text(value: str) -> str:
     value = value.strip()
@@ -61,6 +62,11 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         super().__init__()
         self._personal_data: dict[str, Any] = {}
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        """Expose Add device through the standard Configure action."""
+        return EspAnywhereOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Choose transport."""
@@ -187,3 +193,68 @@ class EspAnywhereConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(unique_id.lower())
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title="ESP Anywhere Personal", data=self._personal_data)
+
+
+class EspAnywhereOptionsFlow(config_entries.OptionsFlow):
+    """Create a browser provisioning session for this existing installation."""
+
+    def __init__(self, config_entry) -> None:
+        self._entry = config_entry
+        self._name = ""
+        self._profile_id = ""
+        self._device_id = ""
+        self._provision_url = ""
+
+    async def async_step_init(self, user_input=None) -> FlowResult:
+        """Collect the human name and official hardware profile."""
+        if self._entry.data.get(CONF_TRANSPORT) != TRANSPORT_CLOUDFLARE:
+            return self.async_abort(reason="cloudflare_required")
+        profiles = load_profiles()
+        profile_names = {item["id"]: item["name"] for item in profiles}
+        if user_input is not None:
+            self._name = _required_text(user_input["device_name"])
+            self._profile_id = user_input["profile_id"]
+            self._device_id = generate_device_id(self._name)
+            return await self.async_step_confirm()
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required("device_name"): str,
+                vol.Required("profile_id", default=profiles[0]["id"]): vol.In(profile_names),
+            }),
+        )
+
+    async def async_step_confirm(self, user_input=None) -> FlowResult:
+        """Show the generated stable ID and allow an advanced override."""
+        errors = {}
+        if user_input is not None:
+            device_id = user_input["device_id"].strip().lower()
+            try:
+                session = await async_create_session(
+                    self.hass, self._entry, self._name, device_id, self._profile_id
+                )
+            except ValueError:
+                errors["base"] = "invalid_device_id"
+            except RuntimeError as err:
+                status = str(err).removeprefix("worker_")
+                errors["base"] = "rate_limited" if status == "429" else "cannot_create_code"
+            else:
+                self._device_id = device_id
+                self._provision_url = f"/api/esp_anywhere/provision/{session.session_id}"
+                return await self.async_step_provision()
+        return self.async_show_form(
+            step_id="confirm",
+            data_schema=vol.Schema({vol.Required("device_id", default=self._device_id): str}),
+            errors=errors,
+            description_placeholders={"device_name": self._name, "profile_id": self._profile_id},
+        )
+
+    async def async_step_provision(self, user_input=None) -> FlowResult:
+        """Provide the opaque short-lived browser URL, never the raw code."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data={})
+        return self.async_show_form(
+            step_id="provision",
+            data_schema=vol.Schema({}),
+            description_placeholders={"provision_url": self._provision_url},
+        )

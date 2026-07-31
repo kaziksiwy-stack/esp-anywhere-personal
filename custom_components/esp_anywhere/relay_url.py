@@ -28,6 +28,13 @@ def claim_url(relay_url: str) -> str:
     return urlunsplit((http_scheme, authority, "/claim", "", ""))
 
 
+def device_activation_url(relay_url: str) -> str:
+    """Build the HA-authorized device activation endpoint."""
+    scheme, authority = _relay_base(relay_url)
+    http_scheme = "https" if scheme in {"https", "wss"} else "http"
+    return urlunsplit((http_scheme, authority, "/ha/device-activation-code", "", ""))
+
+
 def websocket_url(relay_url: str, installation_id: str) -> str:
     """Build the Home Assistant WebSocket endpoint from a relay base URL."""
     scheme, authority = _relay_base(relay_url)

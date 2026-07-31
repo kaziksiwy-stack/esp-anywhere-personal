@@ -125,4 +125,61 @@ describe('InstallationDO Routing & Persistence', () => {
     await doInstance.webSocketMessage(deviceSocket, JSON.stringify({ type: "state", payload: { led_switch: true } }));
     expect(haSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "state", payload: { led_switch: true }, device_id: "test-device" }));
   });
+
+  it('lets only the HA token create a device-bound code', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    mockStorage.data.set('device_tokens', { 'old-device': { deviceId: 'old-device', token: 'device-secret' } });
+    const create = (token: string, deviceId = 'new-device') => doInstance.fetch(new Request('http://worker/ha/device-activation-code', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ installation_id: 'home-one', device_id: deviceId }),
+    }));
+    expect((await create('device-secret')).status).toBe(401);
+    const response = await create('ha-secret');
+    expect(response.status).toBe(200);
+    const result = await response.json() as any;
+    expect(result.code).toMatch(/^home-one:[0-9a-f]{24}$/);
+    const stored = mockStorage.data.get(`activation_code:${result.code}`);
+    expect(stored).toMatchObject({ role: 'device', installationId: 'home-one', deviceId: 'new-device' });
+    expect(mockStorage.data.get('audit_events')).toEqual([
+      { event: 'device_activation_created', deviceId: 'new-device', timestamp: expect.any(Number) },
+    ]);
+    expect(JSON.stringify(mockStorage.data.get('audit_events'))).not.toContain(result.code);
+    expect(JSON.stringify(mockStorage.data.get('audit_events'))).not.toContain('ha-secret');
+  });
+
+  it('rate limits HA code creation and rejects an existing device id', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    const create = (deviceId: string) => doInstance.fetch(new Request('http://worker/ha/device-activation-code', {
+      method: 'POST', headers: { Authorization: 'Bearer ha-secret' },
+      body: JSON.stringify({ installation_id: 'home-one', device_id: deviceId }),
+    }));
+    for (let i = 0; i < 5; i++) expect((await create(`device-${i}`)).status).toBe(200);
+    expect((await create('device-six')).status).toBe(429);
+    mockStorage.data.set('ha_activation_issued', []);
+    mockStorage.data.set('device_tokens', { 'active-device': { deviceId: 'active-device', token: 'secret' } });
+    expect((await create('active-device')).status).toBe(409);
+  });
+  it('enforces the installation device cap before issuing a code', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    const devices: Record<string, any> = {};
+    for (let i = 0; i < 64; i++) devices[`device-${i}`] = { deviceId: `device-${i}`, token: `token-${i}` };
+    mockStorage.data.set('device_tokens', devices);
+    const response = await doInstance.fetch(new Request('http://worker/ha/device-activation-code', {
+      method: 'POST', headers: { Authorization: 'Bearer ha-secret' },
+      body: JSON.stringify({ installation_id: 'home-one', device_id: 'device-64', role: 'home_assistant' }),
+    }));
+    expect(response.status).toBe(409);
+    expect(mockStorage.data.has('activation_code:undefined')).toBe(false);
+  });
+
+  it('ignores requested roles and always creates a device code', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    const response = await doInstance.fetch(new Request('http://worker/ha/device-activation-code', {
+      method: 'POST', headers: { Authorization: 'Bearer ha-secret' },
+      body: JSON.stringify({ installation_id: 'home-one', device_id: 'new-device', role: 'admin' }),
+    }));
+    expect(response.status).toBe(200);
+    const result = await response.json() as any;
+    expect(mockStorage.data.get(`activation_code:${result.code}`).role).toBe('device');
+  });
 });
