@@ -7,6 +7,8 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
+import json
+from uuid import uuid4
 
 from .models import DeviceDescription, parse_discovery
 from .mqtt_client import EspAnywhereMqttClient
@@ -14,7 +16,7 @@ from .protocol import Message, ProtocolError, Topic, command_topic, create_comma
 
 DeviceListener = Callable[["DeviceState", str], None]
 TERMINAL_COMMAND_STATES = frozenset({"succeeded", "failed", "rejected"})
-OTA_STATES = frozenset({"downloading", "installing", "rebooting", "confirmed", "failed", "rollback"})
+OTA_STATES = frozenset({"fetching_manifest", "downloading", "verifying", "installing", "rebooting", "confirmed", "failed", "rollback"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,26 @@ class EspAnywhereRuntime:
         if result["state"] != "succeeded":
             error = result.get("error", {})
             raise RuntimeError(error.get("message", f"Command {result['state']}"))
+        return result
+
+    async def async_start_ota(self, tenant_id: str, device_id: str, *, channel: str, target_version: str, recovery: bool = False, timeout: float = 300) -> dict[str, Any]:
+        """Start a constrained OTA flow and wait through post-boot confirmation."""
+        if channel not in {"stable", "beta", "recovery"}:
+            raise ValueError("Invalid OTA channel")
+        if recovery and channel != "recovery":
+            raise ValueError("Recovery downgrade requires recovery channel")
+        command_id = str(uuid4())
+        payload = json.dumps({"type": "ota_start", "command_id": command_id, "channel": channel, "target_version": target_version, "recovery": recovery}, separators=(",", ":")).encode()
+        future = asyncio.get_running_loop().create_future()
+        self._pending_commands[command_id] = future
+        try:
+            await self.mqtt.async_publish(command_topic(tenant_id, device_id), payload, qos=1, retain=False)
+            result = await asyncio.wait_for(future, timeout=timeout)
+        finally:
+            self._pending_commands.pop(command_id, None)
+        if result["state"] != "succeeded":
+            error = result.get("error", {})
+            raise RuntimeError(error.get("message", f"OTA {result['state']}"))
         return result
 
     async def async_handle_message(self, topic: Topic, message: Message) -> None:

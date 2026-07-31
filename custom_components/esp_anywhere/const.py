@@ -25,3 +25,10 @@ CONF_ENABLE_OTA = "enable_ota"
 
 DEFAULT_PORT = 8883
 DEFAULT_TLS = True
+
+# Public trust anchors only. Private signing keys are never part of HA.
+OTA_TRUSTED_KEYS = {
+    "staging-2026-01": "9klYzANbWthUQZXrfbt6sN3o5snsICJLD4W1IHzon6I=",
+}
+OTA_MANIFEST_HOST = "esp-anywhere-worker-staging.esp-anywhere-worker.workers.dev"
+OTA_FIRMWARE_HOSTS = frozenset({"raw.githubusercontent.com"})

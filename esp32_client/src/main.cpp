@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
+#include "ota_manager.h"
 #if __has_include("config.h")
 #include "config.h"
 #define ESP_ANYWHERE_HAS_LEGACY_CONFIG 1
@@ -31,7 +32,10 @@ size_t caBundleSize() {
     return static_cast<size_t>(x509_crt_bundle_end - x509_crt_bundle);
 }
 
-#define FIRMWARE_VERSION "0.3.0"
+#ifndef ESP_ANYWHERE_FIRMWARE_VERSION
+#define ESP_ANYWHERE_FIRMWARE_VERSION "0.3.1-ota-bootstrap"
+#endif
+#define FIRMWARE_VERSION ESP_ANYWHERE_FIRMWARE_VERSION
 #define HARDWARE_PROFILE ESP_ANYWHERE_PROFILE_ID
 
 WebSocketsClient webSocket;
@@ -239,12 +243,14 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
             emitStage("worker_connected", "ok");
             pushDiscovery();
             pushState();
+            otaOnWssHealthy();
             break;
         case WStype_TEXT: {
             StaticJsonDocument<1024> doc;
             DeserializationError error = deserializeJson(doc, payload);
             if (!error) {
                 String typeStr = doc["type"] | "";
+                if (typeStr == "ota_start") { otaHandleStart(doc.as<JsonObjectConst>()); break; }
                 if (typeStr == "command") {
                     String cmd = doc["command"] | "";
                     String cmdId = doc["command_id"] | "";
@@ -295,6 +301,7 @@ void pushDiscovery() {
     payload["model"] = "ESP32-C3-DevKitM-1";
     payload["hardware_profile"] = HARDWARE_PROFILE;
     payload["firmware_version"] = FIRMWARE_VERSION;
+    if (relay.tls) payload["update_manifest_url"] = String("https://") + relay.host + (relay.port == 443 ? "" : ":" + String(relay.port)) + "/ota/stable/manifest.json";
 
     JsonArray entities = payload.createNestedArray("entities");
 
@@ -348,6 +355,8 @@ void setup() {
         while (true) delay(1000);
     }
 
+    otaInitialize({&preferences, &webSocket, relay.host, relay.port, relay.tls, x509_crt_bundle, caBundleSize(), FIRMWARE_VERSION, HARDWARE_PROFILE});
+
     emitStage("wifi_connected", "active");
     WiFi.begin(wifiSsid, wifiPassword);
     unsigned long wifiDeadline = millis() + 30000;
@@ -376,12 +385,16 @@ void setup() {
     webSocket.setExtraHeaders(("Authorization: Bearer " + deviceToken).c_str());
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(5000);
+#ifdef OTA_TEST_FORCE_WSS_FAILURE
+    if (otaIsPendingVerification()) { Serial.println("[OTA TEST] WSS health intentionally disabled"); while (true) { otaLoop(); delay(50); } }
+#endif
 }
 
 unsigned long lastUpdate = 0;
 
 void loop() {
     webSocket.loop();
+    otaLoop();
     if (Serial.available()) applyProvisionPacket(Serial.readStringUntil('\n'));
 
     if (millis() - lastUpdate > 10000) {

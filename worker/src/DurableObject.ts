@@ -24,6 +24,23 @@ const ACTIVATION_TTL_MS = 5 * 60 * 1000;
 const RATE_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT = 5;
 const MAX_DEVICES = 64;
+const DEVICE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
+const OTA_CHANNELS = new Set(["stable", "beta", "recovery"]);
+
+function isOtaStart(data: any): boolean {
+  return data?.type === "ota_start"
+    && typeof data.device_id === "string"
+    && DEVICE_ID_PATTERN.test(data.device_id)
+    && typeof data.command_id === "string"
+    && /^[0-9a-f-]{16,64}$/i.test(data.command_id)
+    && OTA_CHANNELS.has(data.channel)
+    && typeof data.target_version === "string"
+    && /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(data.target_version)
+    && typeof data.recovery === "boolean"
+    && (!data.recovery || data.channel === "recovery")
+    && !("url" in data) && !("sha256" in data) && !("signature" in data);
+}
+
 
 export function generateRandomString(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
@@ -300,7 +317,7 @@ export class InstallationDO {
 
       if (attachment.role === 'device' && attachment.deviceId) {
         const deviceId = attachment.deviceId;
-        if (['discovery', 'state', 'command_result', 'ota/progress'].includes(type)) {
+        if (['discovery', 'state', 'command_result', 'ota/progress', 'ota_progress', 'ota_verify', 'ota_success', 'ota_failed', 'ota_rollback'].includes(type)) {
           if (type === 'discovery') {
              let discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
              discoveries[deviceId] = payload;
@@ -319,7 +336,7 @@ export class InstallationDO {
             this.recordError(ws);
         }
       } else if (attachment.role === 'home_assistant') {
-        if (type === 'command') {
+        if (type === 'command' || (type === 'ota_start' && isOtaStart(data))) {
           const targetDeviceId = data.device_id;
           const targetWs = this.devices.get(targetDeviceId);
           if (targetWs) {

@@ -182,4 +182,20 @@ describe('InstallationDO Routing & Persistence', () => {
     const result = await response.json() as any;
     expect(mockStorage.data.get(`activation_code:${result.code}`).role).toBe('device');
   });
+  it("routes only constrained OTA commands from HA", async () => {
+    const valid = { type: "ota_start", device_id: "test-device", command_id: "01234567-89ab-cdef", channel: "stable", target_version: "0.3.2", recovery: false };
+    await doInstance.webSocketMessage(haSocket, JSON.stringify(valid));
+    expect(deviceSocket.send).toHaveBeenCalledWith(JSON.stringify(valid));
+    deviceSocket.send.mockClear();
+    await doInstance.webSocketMessage(haSocket, JSON.stringify({ ...valid, url: "https://evil.invalid/fw.bin" }));
+    await doInstance.webSocketMessage(haSocket, JSON.stringify({ ...valid, recovery: true }));
+    expect(deviceSocket.send).not.toHaveBeenCalled();
+  });
+
+  it("does not let a device command OTA", async () => {
+    const command = { type: "ota_start", device_id: "test-device", command_id: "01234567-89ab-cdef", channel: "stable", target_version: "0.3.2", recovery: false };
+    await doInstance.webSocketMessage(deviceSocket, JSON.stringify(command));
+    expect(deviceSocket.send).not.toHaveBeenCalledWith(JSON.stringify(command));
+  });
+
 });

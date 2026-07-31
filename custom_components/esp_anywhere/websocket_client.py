@@ -186,8 +186,8 @@ class EspAnywhereWebsocketClient:
             suffix = "command/result"
             # Command result in runtime expects state in raw, not in payload
             pass
-        elif msg_type == "ota/progress":
-            suffix = msg_type
+        elif msg_type in {"ota/progress", "ota_progress", "ota_verify", "ota_success", "ota_failed", "ota_rollback"}:
+            suffix = "ota/progress"
             payload_data = data.get("payload", {})
         else:
             return

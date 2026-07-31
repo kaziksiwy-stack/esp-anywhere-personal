@@ -21,7 +21,7 @@ from .const import (
     CONF_FIRMWARE_HOST,
     CONF_SIGNING_KEY_ID,
     CONF_SIGNING_PUBLIC_KEY,
-    CONF_TENANT_ID,
+    CONF_TENANT_ID, TRANSPORT_CLOUDFLARE, CONF_TRANSPORT, OTA_TRUSTED_KEYS, OTA_MANIFEST_HOST, OTA_FIRMWARE_HOSTS,
 )
 from .entity import EspAnywhereEntity
 from .manifest import (
@@ -48,9 +48,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up firmware update entities for capable devices."""
     runtime = entry.runtime_data
-    if not all(runtime.config.get(key) for key in (
-        CONF_SIGNING_KEY_ID, CONF_SIGNING_PUBLIC_KEY, CONF_FIRMWARE_HOST
-    )):
+    if runtime.config.get(CONF_TRANSPORT) != TRANSPORT_CLOUDFLARE:
         return
     known: set[str] = set()
 
@@ -70,9 +68,8 @@ async def async_setup_entry(
                     runtime,
                     device,
                     runtime.config[CONF_TENANT_ID],
-                    runtime.config[CONF_SIGNING_KEY_ID],
-                    runtime.config[CONF_SIGNING_PUBLIC_KEY],
-                    runtime.config[CONF_FIRMWARE_HOST],
+                    OTA_TRUSTED_KEYS,
+                    OTA_MANIFEST_HOST,
                     async_get_clientsession(hass),
                 )
             ],
@@ -95,13 +92,12 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
     _attr_should_poll = True
 
     def __init__(
-        self, runtime, device, tenant_id, key_id, public_key, firmware_host, session
+        self, runtime, device, tenant_id, trusted_keys, firmware_host, session
     ) -> None:
         """Initialize the update entity."""
         super().__init__(runtime, device, UPDATE_DESCRIPTION)
         self._tenant_id = tenant_id
-        self._key_id = key_id
-        self._public_key = public_key
+        self._trusted_keys = trusted_keys
         self._firmware_host = firmware_host
         self._session = session
         self._manifest: FirmwareManifest | None = None
@@ -132,10 +128,12 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
         """Expose the authenticated device OTA lifecycle for diagnostics."""
         ota = self._device.ota
         if ota is None:
-            return None
+            return {"channel": self._manifest.channel, "verification": "manifest_verified"} if self._manifest else None
         attributes: dict[str, str | float] = {
             "ota_state": ota.state,
             "ota_progress": ota.progress,
+            "channel": self._manifest.channel if self._manifest else "unknown",
+            "verification": "confirmed" if ota.state == "confirmed" else ota.state,
         }
         if ota.error_code is not None:
             attributes["ota_error"] = ota.error_code
@@ -167,10 +165,12 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
             document = await response.read()
         self._manifest = parse_and_verify_manifest(
             document,
-            trusted_key_id=self._key_id,
-            trusted_public_key=self._public_key,
+            trusted_keys=self._trusted_keys,
             expected_hardware_profile=discovery.hardware_profile,
         )
+        if urlsplit(self._manifest.firmware_url).hostname not in OTA_FIRMWARE_HOSTS:
+            self._manifest = None
+            raise ValueError("Signed firmware URL uses an unapproved host")
 
     @staticmethod
     def _cache_busted_url(url: str) -> str:
@@ -196,19 +196,9 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
             raise RuntimeError("No verified firmware manifest is available")
         if version is not None and version != manifest.version:
             raise ValueError("Installing an arbitrary version is not supported")
-        await self._runtime.async_send_command(
-            self._tenant_id,
-            self._device.device_id,
-            "install_update",
-            {
-                "manifest_url": discovery.update_manifest_url,
-                "firmware_url": manifest.firmware_url,
-                "size": manifest.firmware_size,
-                "version": manifest.version,
-                "sha256": manifest.firmware_sha256,
-                "key_id": manifest.key_id,
-            },
-            timeout=300,
+        await self._runtime.async_start_ota(
+            self._tenant_id, self._device.device_id, channel=manifest.channel,
+            target_version=manifest.version, recovery=False, timeout=300,
         )
 
     async def async_release_notes(self) -> str | None:
