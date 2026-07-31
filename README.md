@@ -2,7 +2,7 @@
 
 ESP Anywhere connects a supported ESP32-C3 to Home Assistant through an encrypted Cloudflare relay. Normal setup uses HACS and a browser—no terminal, Git, PlatformIO, config.h, ADMIN_TOKEN, installation ID, or manually chosen device ID.
 
-> v0.3.0 is under development on a separate branch. Staging provisioner: https://esp-anywhere-worker-staging.esp-anywhere-worker.workers.dev/provision. Stable v0.2.1 remains unchanged. This private alpha must not control safety-critical equipment.
+> v0.3.0 adds browser onboarding and remains an alpha release. The complete no-terminal flow was physically verified with Chromium on Linux, ESP32-C3-DevKitM-1 and Home Assistant OS. Do not use it for safety-critical equipment.
 
 ## Supported hardware
 

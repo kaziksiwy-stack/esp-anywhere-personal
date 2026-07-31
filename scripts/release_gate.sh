@@ -19,7 +19,7 @@ export SOURCE_DATE_EPOCH=1767225600
 /home/piotr/.platformio/penv/bin/platformio run --project-dir esp32_client --target clean
 /home/piotr/.platformio/penv/bin/platformio run --project-dir esp32_client
 cmp esp32_client/.pio/build/esp32-c3-devkitm-1/firmware.factory.bin custom_components/esp_anywhere/static/firmware.factory.bin
-cmp custom_components/esp_anywhere/static/firmware.factory.bin worker/src/firmware-9477ef.bin
+cmp custom_components/esp_anywhere/static/firmware.factory.bin worker/src/firmware-d81692.bin
 restore_config
 trap - EXIT
 git diff --check

@@ -1,6 +1,6 @@
 import { InstallationDO } from './DurableObject';
 import provisionHtml from './provision-v3.html';
-import firmwareImage from './firmware-9477ef.bin';
+import firmwareImage from './firmware-d81692.bin';
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
@@ -24,7 +24,7 @@ export default {
       } });
     }
     if (request.method === 'GET' && url.pathname === '/provision/manifest.json') {
-      return Response.json({ name: 'ESP Anywhere', version: '0.3.0-beta.1',
+      return Response.json({ name: 'ESP Anywhere', version: '0.3.0',
         builds: [{ chipFamily: 'ESP32-C3', parts: [{ path: '/provision/firmware.bin', offset: 0 }] }],
         new_install_prompt_erase: true }, { headers: { 'Cache-Control': 'public, max-age=300' } });
     }

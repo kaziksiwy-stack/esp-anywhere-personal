@@ -31,7 +31,7 @@ size_t caBundleSize() {
     return static_cast<size_t>(x509_crt_bundle_end - x509_crt_bundle);
 }
 
-#define FIRMWARE_VERSION "0.3.0-dev"
+#define FIRMWARE_VERSION "0.3.0"
 #define HARDWARE_PROFILE ESP_ANYWHERE_PROFILE_ID
 
 WebSocketsClient webSocket;

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — Unreleased
+## 0.3.0 — 2026-07-31
 
 - Home Assistant can issue five-minute, device-bound activation codes with its own role token; ADMIN_TOKEN remains backend-only.
 - Added rate limiting, a 64-device installation cap, redacted audit events and expanded authorization and isolation tests.
@@ -9,6 +9,8 @@
 - Added generic ESP32-C3 factory firmware with USB provisioning, NVS credential storage, activation-code erasure and confirmed factory reset.
 - Preserved legacy v0.2.1 devices and the advanced CLI path.
 - Added nontechnical onboarding and dedicated provisioning, self-hosting, troubleshooting and profile documentation.
+- Confirmed the complete Chromium/Linux browser flow against staging and a real HAOS installation, including physical Board LED control.
+- Added resilient Web Serial port reacquisition and chunked configuration writes after ESP Web Tools flashing.
 
 
 ## 0.2.1 — 2026-07-31
