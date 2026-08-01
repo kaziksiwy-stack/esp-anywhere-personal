@@ -337,6 +337,7 @@ export class InstallationDO {
             this.recordError(ws);
         }
       } else if (attachment.role === 'home_assistant') {
+        console.log(JSON.stringify({ event: "ha_message", type: String(type), device_id: typeof data.device_id === "string" ? data.device_id : null }));
         if (type === 'command' || (type === 'ota_start' && isOtaStart(data))) {
           const targetDeviceId = data.device_id;
           const targetWs = this.devices.get(targetDeviceId);

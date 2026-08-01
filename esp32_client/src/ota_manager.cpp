@@ -132,14 +132,14 @@ bool downloadAndStage(const Manifest &manifest, const String &commandId) {
   if (code!=200 || length!=static_cast<int>(manifest.firmwareSize)) { http.end(); fail(commandId,"download_response","Firmware HTTPS response is invalid"); return false; }
   esp_ota_handle_t handle; if (esp_ota_begin(target,manifest.firmwareSize,&handle)!=ESP_OK) { http.end(); fail(commandId,"ota_begin","Cannot prepare inactive OTA partition"); return false; }
   mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha,0);
-  NetworkClient *stream=http.getStreamPtr(); uint8_t buffer[4096]; size_t written=0; uint32_t lastData=millis(); bool ok=true;
+  NetworkClient *stream=http.getStreamPtr(); uint8_t buffer[4096]; size_t written=0; uint32_t lastData=millis(); int lastReportedBucket=-1; bool ok=true;
   while (written<manifest.firmwareSize) {
     size_t available=stream->available();
     if (available) {
       size_t wanted=min(sizeof(buffer),min(available,manifest.firmwareSize-written)); int count=stream->readBytes(buffer,wanted);
       if (count<=0 || esp_ota_write(handle,buffer,count)!=ESP_OK) { ok=false; break; }
       mbedtls_sha256_update(&sha,buffer,count); written+=count; lastData=millis();
-      sendEvent("ota_progress",commandId,"downloading",100.0f*written/manifest.firmwareSize);
+      int bucket=static_cast<int>((100ULL*written/manifest.firmwareSize)/5); if (bucket!=lastReportedBucket) { lastReportedBucket=bucket; sendEvent("ota_progress",commandId,"downloading",min(100.0f,5.0f*bucket)); }
     } else if (!http.connected() || millis()-lastData>DOWNLOAD_STALL_TIMEOUT_MS) { ok=false; break; }
     else delay(10);
   }
@@ -167,7 +167,7 @@ void otaInitialize(const OtaManagerConfig &config) {
 void otaHandleStart(JsonObjectConst message) {
   String commandId=message["command_id"]|"", channel=message["channel"]|"stable", requested=message["target_version"]|""; bool recovery=message["recovery"]|false;
   if (!initialized || commandId.isEmpty() || (channel!="stable"&&channel!="beta"&&channel!="recovery")) return;
-  sendEvent("ota_start",commandId,"fetching_manifest",0);
+  sendEvent("ota_progress",commandId,"fetching_manifest",0);
   String document; if (!fetchManifest(channel,document)) { fail(commandId,"manifest_unavailable","Signed manifest is unavailable"); return; }
   Manifest manifest; String error; if (!verifyManifest(document,manifest,error)) { fail(commandId,error.c_str(),"Signed manifest verification failed"); return; }
   if (manifest.channel!=channel || (!requested.isEmpty()&&manifest.version!=requested)) { fail(commandId,"target_mismatch","Manifest target does not match approved update"); return; }
