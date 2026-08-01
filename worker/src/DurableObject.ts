@@ -263,7 +263,7 @@ export class InstallationDO {
     }
   }
 
-  enforceLimits(ws: WebSocket): boolean {
+  enforceLimits(ws: WebSocket, limit = 50): boolean {
     const now = Date.now();
     if (now - this.lastMsgReset > 10000) {
         this.msgCounts.clear();
@@ -274,7 +274,7 @@ export class InstallationDO {
     cnt++;
     this.msgCounts.set(ws, cnt);
 
-    if (cnt > 50) { // Limit 50 msg per 10s
+    if (cnt > limit) { // Limit 50 msg per 10s
         try { ws.close(1008, 'Rate limit exceeded'); } catch (e) {}
         return false;
     }
@@ -291,7 +291,6 @@ export class InstallationDO {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    if (!this.enforceLimits(ws)) return;
 
     try {
       const msgString = typeof message === 'string' ? message : new TextDecoder().decode(message);
@@ -307,9 +306,10 @@ export class InstallationDO {
       }
 
       const attachment = ws.deserializeAttachment() as { role: string; deviceId?: string };
-      if (!attachment) return;
 
       const { type, payload } = data;
+      const otaBurst = attachment.role === "device" && ["ota_progress", "ota_verify", "ota_success", "ota_failed", "ota_rollback"].includes(String(type));
+      if (!this.enforceLimits(ws, otaBurst ? 400 : 50)) return;
 
       if (type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
@@ -359,7 +359,6 @@ export class InstallationDO {
     this.msgCounts.delete(ws);
 
     const attachment = ws.deserializeAttachment() as { role: string; deviceId?: string };
-    if (!attachment) return;
 
     if (attachment.role === 'home_assistant') {
       if (this.haClient === ws) {
