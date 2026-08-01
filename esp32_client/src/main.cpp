@@ -372,6 +372,13 @@ void setup() {
         if (!isClaimed) delay(5000);
     }
 
+#ifdef OTA_TEST_FORCE_WSS_FAILURE
+    if (otaIsPendingVerification()) {
+        Serial.println("[OTA TEST] WSS health intentionally disabled");
+        while (true) { otaLoop(); delay(50); }
+    }
+#endif
+
     String wsPath = "/ws?role=device&installation_id=" + installationId
         + "&device_id=" + configuredDeviceId;
     if (relay.tls) {
@@ -385,9 +392,6 @@ void setup() {
     webSocket.setExtraHeaders(("Authorization: Bearer " + deviceToken).c_str());
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(5000);
-#ifdef OTA_TEST_FORCE_WSS_FAILURE
-    if (otaIsPendingVerification()) { Serial.println("[OTA TEST] WSS health intentionally disabled"); while (true) { otaLoop(); delay(50); } }
-#endif
 }
 
 unsigned long lastUpdate = 0;
