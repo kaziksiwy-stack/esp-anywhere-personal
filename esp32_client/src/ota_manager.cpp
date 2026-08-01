@@ -1,5 +1,10 @@
 #include "ota_manager.h"
 
+// Arduino otherwise confirms a pending OTA image inside initArduino(), before
+// ESP Anywhere can verify NVS, Wi-Fi, WSS, discovery and state. Keep the
+// image pending until otaOnWssHealthy() explicitly accepts it.
+extern "C" bool verifyRollbackLater() { return true; }
+
 #include <Ed25519.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>

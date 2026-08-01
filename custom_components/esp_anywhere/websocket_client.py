@@ -107,7 +107,6 @@ class EspAnywhereWebsocketClient:
                     "device_id": device_id,
                     **data
                 }
-                _LOGGER.warning("OTA_DIAG outbound type=%s device_id=%s", ws_payload.get("type"), device_id)
                 await ws.send_json(ws_payload)
             except json.JSONDecodeError:
                 pass

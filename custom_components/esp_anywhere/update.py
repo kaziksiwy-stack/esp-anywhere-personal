@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -34,6 +35,7 @@ from .models import EntityDescription
 from .runtime import DeviceState
 
 SCAN_INTERVAL = timedelta(seconds=30)
+_LOGGER = logging.getLogger(__name__)
 
 UPDATE_DESCRIPTION = EntityDescription(
     entity_id="esp_anywhere_firmware_update",
@@ -73,7 +75,7 @@ async def async_setup_entry(
                     async_get_clientsession(hass),
                 )
             ],
-            update_before_add=True,
+            update_before_add=False,
         )
 
     for device in runtime.devices.values():

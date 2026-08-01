@@ -241,7 +241,7 @@ export class InstallationDO {
   async syncStateToHA(haClient: WebSocket) {
     const discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
     const states = await this.state.storage.get<Record<string, any>>('states') || {};
-    console.log(JSON.stringify({ event: "ha_state_replay", discoveries: Object.keys(discoveries).length, states: Object.keys(states).length, online_devices: this.devices.size , replay_devices: Object.entries(discoveries).map(([id, payload]) => ({ id, firmware_version: payload?.firmware_version, has_manifest: typeof payload?.update_manifest_url === "string" })) }));
+    console.log(JSON.stringify({ event: "ha_state_replay", discoveries: Object.keys(discoveries).length, states: Object.keys(states).length, online_devices: this.devices.size }));
 
     for (const [devId, payload] of Object.entries(discoveries)) {
       haClient.send(JSON.stringify({ type: 'discovery', device_id: devId, payload }));
