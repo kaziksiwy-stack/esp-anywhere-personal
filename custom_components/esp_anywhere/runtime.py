@@ -60,6 +60,7 @@ class EspAnywhereRuntime:
     _pending_commands: dict[str, asyncio.Future[dict[str, Any]]] = field(
         default_factory=dict
     )
+    _pending_ota_targets: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     def register_listener(self, listener: DeviceListener) -> Callable[[], None]:
         """Register a synchronous device update listener."""
@@ -109,11 +110,13 @@ class EspAnywhereRuntime:
         payload = json.dumps({"type": "ota_start", "command_id": command_id, "channel": channel, "target_version": target_version, "recovery": recovery}, separators=(",", ":")).encode()
         future = asyncio.get_running_loop().create_future()
         self._pending_commands[command_id] = future
+        self._pending_ota_targets[command_id] = (device_id, target_version)
         try:
             await self.mqtt.async_publish(command_topic(tenant_id, device_id), payload, qos=1, retain=False)
             result = await asyncio.wait_for(future, timeout=timeout)
         finally:
             self._pending_commands.pop(command_id, None)
+            self._pending_ota_targets.pop(command_id, None)
         if result["state"] != "succeeded":
             error = result.get("error", {})
             raise RuntimeError(error.get("message", f"OTA {result['state']}"))
@@ -131,6 +134,19 @@ class EspAnywhereRuntime:
                 device.discovery = parse_discovery(message.payload)
             except ProtocolError:
                 return
+            # ota_success can race the post-reboot WebSocket. Authenticated
+            # discovery at the requested version is equivalent confirmation.
+            for command_id, (target_device, target_version) in tuple(
+                self._pending_ota_targets.items()
+            ):
+                if (
+                    target_device == topic.device_id
+                    and device.discovery.firmware_version == target_version
+                    and (future := self._pending_commands.get(command_id)) is not None
+                    and not future.done()
+                ):
+                    device.ota = OtaProgress("confirmed", 100.0, command_id)
+                    future.set_result({"command_id": command_id, "state": "succeeded"})
         elif topic.suffix == "state":
             device.state = message.payload.copy()
         elif topic.suffix.startswith("state/"):

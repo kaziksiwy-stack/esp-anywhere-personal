@@ -117,6 +117,8 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
     def in_progress(self) -> bool | int:
         """Return OTA activity or the reported download percentage."""
         ota = self._device.ota
+        if self._manifest is not None and self.installed_version == self._manifest.version:
+            return False
         if ota is None or ota.state in {"confirmed", "failed", "rollback"}:
             return False
         if ota.state == "downloading":
