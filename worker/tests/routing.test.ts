@@ -96,13 +96,13 @@ describe('InstallationDO Routing & Persistence', () => {
     expect(restored.haClient).toBe(restoredHa);
     expect(restored.devices.get('restored-device')).toBe(restoredDevice);
   });
-  it('replaces only a reconnecting socket with the same identity', () => {
+  it('replaces only a reconnecting socket with the same identity', async () => {
     const oldDevice = { close: vi.fn(), deserializeAttachment: vi.fn().mockReturnValue({ role: 'device', deviceId: 'device-a' }) };
     const otherDevice = { close: vi.fn(), deserializeAttachment: vi.fn().mockReturnValue({ role: 'device', deviceId: 'device-b' }) };
     stubState.getWebSockets.mockReturnValue([oldDevice, otherDevice]);
     const restored = new InstallationDO(stubState as any, {} as any);
     const replacement = { close: vi.fn(), serializeAttachment: vi.fn() };
-    restored.registerWebSocket(replacement as any, 'device', 'device-a');
+    await restored.registerWebSocket(replacement as any, 'device', 'device-a');
     expect(oldDevice.close).toHaveBeenCalledWith(1000, 'Replaced');
     expect(otherDevice.close).not.toHaveBeenCalled();
     expect(restored.devices.get('device-a')).toBe(replacement);

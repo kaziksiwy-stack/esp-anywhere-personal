@@ -79,7 +79,7 @@ export class InstallationDO {
     }
   }
 
-  registerWebSocket(
+  async registerWebSocket(
     server: WebSocket,
     role: 'device' | 'home_assistant',
     deviceId: string | null,
@@ -90,7 +90,7 @@ export class InstallationDO {
       }
       this.haClient = server;
       server.serializeAttachment({ role: 'home_assistant' });
-      this.syncStateToHA(server);
+      await this.syncStateToHA(server);
     } else if (deviceId) {
       const existing = this.devices.get(deviceId);
       if (existing && existing !== server) {
@@ -227,7 +227,7 @@ export class InstallationDO {
 
       this.state.acceptWebSocket(server);
 
-      this.registerWebSocket(server, role, deviceId);
+      await this.registerWebSocket(server, role, deviceId);
 
       return new Response(null, {
         status: 101,
@@ -241,6 +241,7 @@ export class InstallationDO {
   async syncStateToHA(haClient: WebSocket) {
     const discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
     const states = await this.state.storage.get<Record<string, any>>('states') || {};
+    console.log(JSON.stringify({ event: "ha_state_replay", discoveries: Object.keys(discoveries).length, states: Object.keys(states).length, online_devices: this.devices.size }));
 
     for (const [devId, payload] of Object.entries(discoveries)) {
       haClient.send(JSON.stringify({ type: 'discovery', device_id: devId, payload }));
