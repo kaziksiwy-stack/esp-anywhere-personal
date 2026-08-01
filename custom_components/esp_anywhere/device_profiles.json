@@ -6,11 +6,11 @@
       "name": "Espressif ESP32-C3-DevKitM-1",
       "platform": "espressif32",
       "board": "esp32-c3-devkitm-1",
-      "flash_layout": "huge_app.csv",
+      "flash_layout": "partitions_ota.csv",
       "led_pin": 8,
       "led_active_low": true,
       "usb_mode": "native_usb_cdc",
-      "firmware_artifact": "esp-anywhere-0.3.0-esp32-c3-devkitm-1.factory.bin"
+      "firmware_artifact": "firmware.factory.bin"
     }
   ]
 }

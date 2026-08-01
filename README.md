@@ -7,7 +7,7 @@ ESP Anywhere connects a supported ESP32-C3 to Home Assistant through an encrypte
 ## Supported hardware
 
 - Espressif ESP32-C3-DevKitM-1
-- native USB CDC, 4 MB flash, huge_app.csv
+- native USB CDC, 4 MB flash, A/B OTA partition layout
 - board LED on GPIO 8, active-low
 
 Only profiles in custom_components/esp_anywhere/device_profiles.json appear in the UI.
@@ -42,7 +42,7 @@ See docs/QUICK_START.md, docs/WEB_PROVISIONING.md, docs/TROUBLESHOOTING.md and d
 
 - Web Serial requires desktop Chrome/Edge; Safari, Firefox, iOS and Android are unsupported. The integration hands off from HA to the public HTTPS provisioner, so a local HA opened over HTTP remains supported.
 - A person must confirm the USB chooser and physical LED.
-- OTA remains disabled pending signatures and rollback.
+- Public v0.3.0 devices need one final browser/USB flash to install the A/B OTA bootstrap. Signed internet OTA is implemented on the staging branch and has passed physical success and rollback tests; it is not enabled on production yet.
 - Limit: 64 devices per installation and 5 prepared codes per minute.
 - There is no end-user account or revocation panel yet.
 

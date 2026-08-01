@@ -26,7 +26,7 @@ git diff --check
 if git ls-files | grep -Eq '(^|/)(config\.h|\.dev\.vars)$'; then
   echo 'Tracked private configuration detected.' >&2; exit 1
 fi
-if git grep -n -E '192\.168\.|100\.110\.|first-real-test|esp32_c3_001' -- ':!tests/**' ':!worker/tests/**'; then
+if git grep -I -n -E '192.168.|100.110.|first-real-test|esp32_c3_001' -- ':!tests/**' ':!worker/tests/**' ':!scripts/release_gate.sh'; then
   echo 'Local address or personal test identifier detected.' >&2; exit 1
 fi
 echo 'release gate: PASS'
