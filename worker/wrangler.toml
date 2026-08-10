@@ -36,3 +36,7 @@ class_name = "InstallationDO"
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["InstallationDO"]
+
+[[env.staging.kv_namespaces]]
+binding = "ARTIFACTS"
+id = "96b48eb93b8443c0a6e8c206243a3c3b"

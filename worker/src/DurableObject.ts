@@ -176,6 +176,22 @@ export class InstallationDO {
       return Response.json({ code, expiresAt, installation_id: installationId, device_id: deviceId }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
+    if (request.method === 'PUT' && url.pathname === '/builder/artifact') {
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!await this.isAuthorized('home_assistant', null, token)) return new Response('Unauthorized', { status: 401 });
+      const key = request.headers.get('X-Artifact-Key') || '';
+      if (!/^(?:projects\/[a-z0-9][a-z0-9_-]{2,63}\/(?:builds\/[a-z0-9_-]{8,160}\/[A-Za-z0-9._-]{1,96}|ota\/stable\/manifest\.json)|ota\/stable\/manifest\.json)$/.test(key)) {
+        return new Response('Invalid artifact key', { status: 400 });
+      }
+      if (!this.env.ARTIFACTS) return new Response('Artifact storage unavailable', { status: 503 });
+      if (key.includes('/builds/') && await this.env.ARTIFACTS.get(key, 'stream')) return new Response('Immutable artifact exists', { status: 409 });
+      const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
+      if (!request.body) return new Response('Artifact body required', { status: 400 });
+      await this.env.ARTIFACTS.put(key, request.body, { metadata: { contentType } });
+      return Response.json({ key }, { status: 201 });
+    }
+
     if (url.pathname === '/ha/devices' || url.pathname === '/ha/ota-start' || url.pathname === '/ha/ota-status') {
       const authHeader = request.headers.get('Authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
