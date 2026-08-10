@@ -222,7 +222,7 @@ export class InstallationDO {
         const target = this.devices.get(body.device_id);
         if (!target) return new Response('Device offline', { status: 409 });
         const statuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
-        statuses[body.device_id] = { command_id: body.command_id, state: 'queued', updated_at: Date.now() };
+        statuses[body.device_id] = { command_id: body.command_id, state: 'queued', target_version: body.target_version, health_discovery: false, health_state: false, updated_at: Date.now() };
         await this.state.storage.put('ota_statuses', statuses);
         target.send(JSON.stringify(message));
         return Response.json(statuses[body.device_id], { status: 202 });
@@ -391,10 +391,26 @@ export class InstallationDO {
              let discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
              discoveries[deviceId] = payload;
              await this.state.storage.put('discoveries', discoveries);
+             const otaStatuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+             const ota = otaStatuses[deviceId];
+             if (ota?.state === 'rebooting') {
+               ota.health_discovery = payload?.firmware_version === ota.target_version;
+               if (ota.health_discovery && ota.health_state) ota.state = 'confirmed';
+               ota.updated_at = Date.now();
+               await this.state.storage.put('ota_statuses', otaStatuses);
+             }
           } else if (type === 'state') {
              let states = await this.state.storage.get<Record<string, any>>('states') || {};
              states[deviceId] = payload;
              await this.state.storage.put('states', states);
+             const otaStatuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+             const ota = otaStatuses[deviceId];
+             if (ota?.state === 'rebooting') {
+               ota.health_state = true;
+               if (ota.health_discovery && ota.health_state) ota.state = 'confirmed';
+               ota.updated_at = Date.now();
+               await this.state.storage.put('ota_statuses', otaStatuses);
+             }
           }
 
           if (['ota_progress', 'ota_verify', 'ota_success', 'ota_failed', 'ota_rollback'].includes(type)) {
@@ -403,6 +419,7 @@ export class InstallationDO {
             const previous = statuses[deviceId];
             if (commandId && (!previous || previous.command_id === commandId)) {
               statuses[deviceId] = {
+                ...previous,
                 command_id: commandId,
                 state: typeof data.state === 'string' ? data.state : type.replace('ota_', ''),
                 progress: typeof data.progress === 'number' ? data.progress : undefined,
