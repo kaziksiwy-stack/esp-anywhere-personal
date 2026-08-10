@@ -29,6 +29,7 @@ DEFAULT_TLS = True
 # Public trust anchors only. Private signing keys are never part of HA.
 OTA_TRUSTED_KEYS = {
     "staging-2026-01": "9klYzANbWthUQZXrfbt6sN3o5snsICJLD4W1IHzon6I=",
+    "staging-esphome-2026-08": "mx+37i0S2o2rIbI0Aq8I7Cr+EnJKA+e5AY94jKPEmnE=",
 }
 OTA_MANIFEST_HOST = "esp-anywhere-worker-staging.esp-anywhere-worker.workers.dev"
-OTA_FIRMWARE_HOSTS = frozenset({"raw.githubusercontent.com"})
+OTA_FIRMWARE_HOSTS = frozenset({"raw.githubusercontent.com", OTA_MANIFEST_HOST})

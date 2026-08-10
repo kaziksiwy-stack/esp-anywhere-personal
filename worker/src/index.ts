@@ -2,6 +2,7 @@ import { InstallationDO } from './DurableObject';
 import provisionHtml from './provision-v3.html';
 import firmwareImage from './firmware-d81692.bin';
 import otaStableManifest from "./ota-stable.json";
+import otaS3Image from "./ota-s3.bin";
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
@@ -19,6 +20,9 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/ota/stable/manifest.json") {
       return new Response(JSON.stringify(otaStableManifest), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+    }
+    if (request.method === "GET" && url.pathname === "/ota/stable/firmware.bin") {
+      return new Response(otaS3Image, { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" } });
     }
     if (request.method === 'GET' && url.pathname === '/provision') {
       return new Response(provisionHtml, { headers: {

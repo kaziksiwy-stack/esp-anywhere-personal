@@ -75,6 +75,16 @@ describe('Worker HTTP routing', () => {
     expect(env.ESP_ANYWHERE_INSTALLATION.idFromName).toHaveBeenCalledWith('home-two');
     await expect(response.json()).resolves.toMatchObject({ installation_id: 'home-two', device_id: 'garage-node' });
   });
+  it('serves the signed OTA manifest and exact firmware asset', async () => {
+    const { env } = envWithStub();
+    const manifest = await worker.fetch(new Request('https://worker/ota/stable/manifest.json'), env as any, {} as any);
+    expect(manifest.status).toBe(200);
+    await expect(manifest.json()).resolves.toMatchObject({ schema_version: 2, security: { algorithm: 'Ed25519', key_id: 'staging-esphome-2026-08' } });
+    const firmware = await worker.fetch(new Request('https://worker/ota/stable/firmware.bin'), env as any, {} as any);
+    expect(firmware.headers.get('content-type')).toBe('application/octet-stream');
+    expect((await firmware.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
+
   it('serves a secret-free HTTPS provisioner manifest and factory image', async () => {
     const { env } = envWithStub();
     const page = await worker.fetch(new Request('https://worker/provision'), env as any, {} as any);

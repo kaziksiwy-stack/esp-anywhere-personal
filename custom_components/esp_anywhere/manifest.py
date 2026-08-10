@@ -42,6 +42,7 @@ class FirmwareManifest:
 
 
 def parse_and_verify_manifest(document: bytes, *, expected_hardware_profile: str,
+                              expected_ota_capabilities: dict[str, Any] | None = None,
                               trusted_keys: dict[str, str] | None = None,
                               trusted_key_id: str | None = None,
                               trusted_public_key: str | None = None) -> FirmwareManifest:
@@ -71,7 +72,7 @@ def parse_and_verify_manifest(document: bytes, *, expected_hardware_profile: str
         raw = outer
     else:
         raise ProtocolError("Unsupported manifest schema")
-    return _validate_signed_payload(raw, key_id, signature, expected_hardware_profile)
+    return _validate_signed_payload(raw, key_id, signature, expected_hardware_profile, expected_ota_capabilities)
 
 
 def _verify_v2(outer: dict[str, Any], keys: dict[str, str]) -> tuple[dict[str, Any], str, str]:
@@ -96,7 +97,7 @@ def _verify_v2(outer: dict[str, Any], keys: dict[str, str]) -> tuple[dict[str, A
         raise ProtocolError("Invalid manifest signature or signed payload") from err
     if not isinstance(raw, dict):
         raise ProtocolError("Signed payload must be an object")
-    _require(raw.get("manifest_version") == 1, "Unsupported signed payload version")
+    _require(raw.get("manifest_version") in {1, 2}, "Unsupported signed payload version")
     return raw, key_id, signature
 
 
@@ -114,7 +115,8 @@ def _verify_v1(raw: dict[str, Any], signature: str, public_key: str) -> None:
 
 
 def _validate_signed_payload(raw: dict[str, Any], key_id: str, signature: str,
-                             expected_hardware_profile: str) -> FirmwareManifest:
+                             expected_hardware_profile: str,
+                             expected_ota_capabilities: dict[str, Any] | None = None) -> FirmwareManifest:
     _require(raw.get("project") == "esp-anywhere", "Wrong manifest project")
     version = _required_string(raw, "version", 64)
     _require(SEMVER_PATTERN.fullmatch(version) is not None, "Invalid firmware SemVer")
@@ -125,30 +127,51 @@ def _validate_signed_payload(raw: dict[str, Any], key_id: str, signature: str,
     recovery = raw.get("recovery", False)
     _require(isinstance(recovery, bool), "Invalid recovery flag")
     _require(not recovery or channel == "recovery", "Recovery requires recovery channel")
-    profile = _required_string(raw, "hardware_profile", 64)
-    _require(profile == expected_hardware_profile, "Wrong hardware profile")
-    chip = _required_string(raw, "chip_family", 16)
-    _require(chip == "ESP32-C3", "Unsupported chip family")
-    commit = _required_string(raw, "git_commit", 40)
-    _require(GIT_COMMIT_PATTERN.fullmatch(commit) is not None, "Invalid git commit")
+
+    if raw.get("manifest_version") == 2:
+        capabilities = expected_ota_capabilities
+        _require(isinstance(capabilities, dict), "Device did not report OTA capabilities")
+        compatibility = raw.get("compatibility")
+        _require(isinstance(compatibility, dict), "Missing OTA compatibility metadata")
+        for key in ("app_slot_count", "app_slot_size", "has_otadata", "layout_sha256"):
+            _require(compatibility.get(key) == capabilities.get(key), f"Incompatible OTA {key}")
+        _require(compatibility.get("required_tier") == capabilities.get("tier"), "Incompatible OTA tier")
+        chip = _required_string(raw, "chip_family", 16)
+        _require(chip == capabilities.get("chip_family"), "Wrong chip family")
+        policy = _required_string(raw, "downgrade_policy", 32)
+        _require(policy == ("recovery_authorized" if recovery else "upgrade_only"), "Invalid downgrade policy")
+        profile = expected_hardware_profile
+        published = ""
+        bootstrap = 1
+    else:
+        profile = _required_string(raw, "hardware_profile", 64)
+        _require(profile == expected_hardware_profile, "Wrong hardware profile")
+        chip = _required_string(raw, "chip_family", 16)
+        _require(chip == "ESP32-C3", "Unsupported chip family")
+        commit = _required_string(raw, "git_commit", 40)
+        _require(GIT_COMMIT_PATTERN.fullmatch(commit) is not None, "Invalid git commit")
+        published = _required_string(raw, "published_at", 64)
+        try:
+            datetime.fromisoformat(published.replace("Z", "+00:00"))
+        except ValueError as err:
+            raise ProtocolError("Invalid published_at") from err
+        bootstrap = raw.get("min_ota_bootstrap", 1)
+        _require(isinstance(bootstrap, int) and 1 <= bootstrap <= 65535, "Invalid OTA bootstrap version")
+
     _required_string(raw, "build_id", 128)
-    published = _required_string(raw, "published_at", 64)
-    try: datetime.fromisoformat(published.replace("Z", "+00:00"))
-    except ValueError as err: raise ProtocolError("Invalid published_at") from err
     firmware = raw.get("firmware")
-    if not isinstance(firmware, dict): raise ProtocolError("Firmware must be an object")
+    if not isinstance(firmware, dict):
+        raise ProtocolError("Firmware must be an object")
     url = _required_string(firmware, "url", 1024)
     _require(url.startswith("https://"), "Firmware URL must use HTTPS")
     size = firmware.get("size")
-    _require(isinstance(size, int) and 0 < size <= 2 * 1024 * 1024, "Invalid firmware size")
+    maximum = int(expected_ota_capabilities.get("app_slot_size", 2 * 1024 * 1024)) if expected_ota_capabilities else 2 * 1024 * 1024
+    _require(isinstance(size, int) and 0 < size <= maximum, "Invalid firmware size")
     sha = _required_string(firmware, "sha256", 64)
     _require(SHA256_PATTERN.fullmatch(sha) is not None, "Invalid SHA-256")
-    bootstrap = raw.get("min_ota_bootstrap", 1)
-    _require(isinstance(bootstrap, int) and 1 <= bootstrap <= 65535, "Invalid OTA bootstrap version")
     return FirmwareManifest(version, protocol, channel, profile, chip, url, size, sha, key_id,
         signature, published, _optional_https(raw, "release_url"), _optional_string(raw, "summary", 1024),
         bootstrap, recovery, "Ed25519")
-
 
 def version_is_newer(candidate: str, installed: str) -> bool:
     return _semver_key(candidate) > _semver_key(installed)

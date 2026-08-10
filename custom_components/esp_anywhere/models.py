@@ -39,6 +39,7 @@ class DeviceDescription:
     entities: tuple[EntityDescription, ...]
     configuration_url: str | None = None
     update_manifest_url: str | None = None
+    ota_capabilities: dict[str, Any] | None = None
 
 
 def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
@@ -103,6 +104,13 @@ def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
     if configuration_url is not None and not configuration_url.startswith("https://"):
         raise ProtocolError("configuration_url must use HTTPS")
     update_manifest_url = _optional_string(payload, "update_manifest_url", 512)
+    ota_capabilities = payload.get("ota_capabilities")
+    if ota_capabilities is not None:
+        if not isinstance(ota_capabilities, dict) or ota_capabilities.get("tier") not in {"A", "B", "C"}:
+            raise ProtocolError("Invalid ota_capabilities")
+        for key in ("chip_family", "layout_sha256"):
+            if not isinstance(ota_capabilities.get(key), str):
+                raise ProtocolError("Invalid ota_capabilities")
     if update_manifest_url is not None and not update_manifest_url.startswith("https://"):
         raise ProtocolError("update_manifest_url must use HTTPS")
 
@@ -115,6 +123,7 @@ def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
         entities=tuple(entities),
         configuration_url=configuration_url,
         update_manifest_url=update_manifest_url,
+        ota_capabilities=ota_capabilities,
     )
 
 

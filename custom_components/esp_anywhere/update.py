@@ -171,6 +171,7 @@ class EspAnywhereUpdateEntity(EspAnywhereEntity, UpdateEntity):
             document,
             trusted_keys=self._trusted_keys,
             expected_hardware_profile=discovery.hardware_profile,
+            expected_ota_capabilities=discovery.ota_capabilities,
         )
         if urlsplit(self._manifest.firmware_url).hostname not in OTA_FIRMWARE_HOSTS:
             self._manifest = None
