@@ -10,6 +10,7 @@ const ACTIVATION_CODE_PATTERN = /^([a-z0-9][a-z0-9_-]{2,63}):[0-9a-f]{24}$/;
 export interface Env {
   ESP_ANYWHERE_INSTALLATION: DurableObjectNamespace;
   ADMIN_TOKEN?: string;
+  ARTIFACT_ORIGIN?: string;
 }
 
 export { InstallationDO };
@@ -18,6 +19,24 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === 'GET' && url.pathname.startsWith('/artifacts/projects/')) {
+      const relative = url.pathname.slice('/artifacts/'.length);
+      if (!/^projects\/[a-z0-9][a-z0-9_-]{2,63}\/(?:builds\/[a-z0-9_-]{8,160}\/[A-Za-z0-9._-]{1,96}|ota\/stable\/manifest\.json)$/.test(relative)) {
+        return new Response('Invalid artifact path', { status: 400 });
+      }
+      if (!env.ARTIFACT_ORIGIN?.startsWith('https://')) return new Response('Artifact origin unavailable', { status: 503 });
+      const upstream = await fetch(`${env.ARTIFACT_ORIGIN.replace(/\/$/, '')}/${relative}`);
+      if (!upstream.ok) return new Response('Artifact not found', { status: upstream.status === 404 ? 404 : 502 });
+      const headers = new Headers(upstream.headers);
+      headers.set('X-Content-Type-Options', 'nosniff');
+      headers.set('Cache-Control', relative.includes('/builds/') ? 'public, max-age=31536000, immutable' : 'no-store');
+      return new Response(upstream.body, { status: 200, headers });
+    }
+
+    if (request.method === "GET" && url.pathname === "/ota/stable/manifest.json" && env.ARTIFACT_ORIGIN) {
+      const upstream = await fetch(`${env.ARTIFACT_ORIGIN.replace(/\/$/, '')}/ota/stable/manifest.json`);
+      if (upstream.ok) return new Response(upstream.body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+    }
     if (request.method === "GET" && url.pathname === "/ota/stable/manifest.json") {
       return new Response(JSON.stringify(otaStableManifest), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
     }
@@ -103,6 +122,25 @@ export default {
         if (typeof installationId !== 'string' || !IDENTIFIER_PATTERN.test(installationId)
           || typeof deviceId !== 'string' || !IDENTIFIER_PATTERN.test(deviceId)
           || !authHeader?.startsWith('Bearer ')) return new Response('Invalid request', { status: 400 });
+        const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+        return env.ESP_ANYWHERE_INSTALLATION.get(id).fetch(request);
+      } catch {
+        return new Response('Bad request', { status: 400 });
+      }
+    }
+
+    if (
+      (request.method === 'GET' && (url.pathname === '/ha/devices' || url.pathname === '/ha/ota-status'))
+      || (request.method === 'POST' && url.pathname === '/ha/ota-start')
+    ) {
+      try {
+        const installationId = request.method === 'GET'
+          ? url.searchParams.get('installation_id')
+          : ((await request.clone().json()) as any).installation_id;
+        if (typeof installationId !== 'string' || !IDENTIFIER_PATTERN.test(installationId)
+          || !request.headers.get('Authorization')?.startsWith('Bearer ')) {
+          return new Response('Invalid request', { status: 400 });
+        }
         const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
         return env.ESP_ANYWHERE_INSTALLATION.get(id).fetch(request);
       } catch {

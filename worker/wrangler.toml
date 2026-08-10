@@ -27,6 +27,7 @@ new_sqlite_classes = ["InstallationDO"]
 
 [env.staging]
 name = "esp-anywhere-worker-staging"
+vars = { ARTIFACT_ORIGIN = "https://raw.githubusercontent.com/kaziksiwy-stack/esp-anywhere-ota/main" }
 
 [[env.staging.durable_objects.bindings]]
 name = "ESP_ANYWHERE_INSTALLATION"

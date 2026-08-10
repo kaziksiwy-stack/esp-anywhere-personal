@@ -176,6 +176,54 @@ export class InstallationDO {
       return Response.json({ code, expiresAt, installation_id: installationId, device_id: deviceId }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
+    if (url.pathname === '/ha/devices' || url.pathname === '/ha/ota-start' || url.pathname === '/ha/ota-status') {
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!await this.isAuthorized('home_assistant', null, token)) return new Response('Unauthorized', { status: 401 });
+
+      if (request.method === 'GET' && url.pathname === '/ha/devices') {
+        const credentials = await this.state.storage.get<Record<string, DeviceCredential>>('device_tokens') || {};
+        const discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
+        const lastSeen = await this.state.storage.get<Record<string, number>>('device_last_seen') || {};
+        const otaStatuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+        const devices = Object.keys(credentials).map(deviceId => {
+          const discovery = discoveries[deviceId] || {};
+          return { device_id: deviceId, friendly_name: discovery.name || deviceId, online: this.devices.has(deviceId),
+            firmware_version: discovery.firmware_version || null,
+            chip_family: discovery.ota_capabilities?.chip_family || null,
+            ota_capability: discovery.ota_capabilities?.tier || 'C',
+            last_seen: lastSeen[deviceId] ? new Date(lastSeen[deviceId]).toISOString() : null,
+            ota: otaStatuses[deviceId] || null };
+        });
+        return Response.json({ devices }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+
+      if (request.method === 'POST' && url.pathname === '/ha/ota-start') {
+        const body = (await request.json()) as any;
+        const message = { type: 'ota_start', device_id: body.device_id, command_id: body.command_id,
+          channel: body.channel, target_version: body.target_version, recovery: body.recovery };
+        if (!isOtaStart(message)) return new Response('Invalid OTA request', { status: 400 });
+        const target = this.devices.get(body.device_id);
+        if (!target) return new Response('Device offline', { status: 409 });
+        const statuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+        statuses[body.device_id] = { command_id: body.command_id, state: 'queued', updated_at: Date.now() };
+        await this.state.storage.put('ota_statuses', statuses);
+        target.send(JSON.stringify(message));
+        return Response.json(statuses[body.device_id], { status: 202 });
+      }
+
+      if (request.method === 'GET' && url.pathname === '/ha/ota-status') {
+        const deviceId = url.searchParams.get('device_id');
+        const commandId = url.searchParams.get('command_id');
+        if (!deviceId || !commandId) return new Response('Invalid request', { status: 400 });
+        const statuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+        const status = statuses[deviceId];
+        if (!status || status.command_id !== commandId) return new Response('Not found', { status: 404 });
+        return Response.json(status, { headers: { 'Cache-Control': 'no-store' } });
+      }
+      return new Response('Method not allowed', { status: 405 });
+    }
+
     if (request.method === 'POST' && url.pathname === '/claim') {
       const body = (await request.json()) as any;
       const code = body.code;
@@ -319,6 +367,9 @@ export class InstallationDO {
 
       if (attachment.role === 'device' && attachment.deviceId) {
         const deviceId = attachment.deviceId;
+        const lastSeen = await this.state.storage.get<Record<string, number>>("device_last_seen") || {};
+        lastSeen[deviceId] = Date.now();
+        await this.state.storage.put("device_last_seen", lastSeen);
         if (['discovery', 'state', 'command_result', 'ota/progress', 'ota_progress', 'ota_verify', 'ota_success', 'ota_failed', 'ota_rollback'].includes(type)) {
           if (type === 'discovery') {
              let discoveries = await this.state.storage.get<Record<string, any>>('discoveries') || {};
@@ -330,6 +381,21 @@ export class InstallationDO {
              await this.state.storage.put('states', states);
           }
 
+          if (['ota_progress', 'ota_verify', 'ota_success', 'ota_failed', 'ota_rollback'].includes(type)) {
+            const commandId = data.command_id || payload?.command_id;
+            const statuses = await this.state.storage.get<Record<string, any>>('ota_statuses') || {};
+            const previous = statuses[deviceId];
+            if (commandId && (!previous || previous.command_id === commandId)) {
+              statuses[deviceId] = {
+                command_id: commandId,
+                state: typeof data.state === 'string' ? data.state : type.replace('ota_', ''),
+                progress: typeof data.progress === 'number' ? data.progress : undefined,
+                error_code: typeof data.error_code === 'string' ? data.error_code : undefined,
+                updated_at: Date.now(),
+              };
+              await this.state.storage.put('ota_statuses', statuses);
+            }
+          }
           if (this.haClient) {
             data.device_id = deviceId;
             this.haClient.send(JSON.stringify(data));

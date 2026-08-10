@@ -198,4 +198,28 @@ describe('InstallationDO Routing & Persistence', () => {
     expect(deviceSocket.send).not.toHaveBeenCalledWith(JSON.stringify(command));
   });
 
+  it('lists paired devices without exposing device tokens', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    mockStorage.data.set('device_tokens', { 'test-device': { deviceId: 'test-device', token: 'device-secret' } });
+    mockStorage.data.set('discoveries', { 'test-device': { name: 'Kitchen', firmware_version: '0.3.2', ota_capabilities: { tier: 'A', chip_family: 'ESP32-S3' } } });
+    const response = await doInstance.fetch(new Request('http://worker/ha/devices', { headers: { Authorization: 'Bearer ha-secret' } }));
+    expect(response.status).toBe(200);
+    const result = await response.json() as any;
+    expect(result.devices[0]).toMatchObject({ device_id: 'test-device', friendly_name: 'Kitchen', online: true, ota_capability: 'A' });
+    expect(JSON.stringify(result)).not.toContain('device-secret');
+  });
+
+  it('routes authenticated Builder OTA and persists terminal status', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    const body = { installation_id: 'home-one', device_id: 'test-device', command_id: '01234567-89ab-cdef', channel: 'stable', target_version: '0.3.2', recovery: false };
+    const response = await doInstance.fetch(new Request('http://worker/ha/ota-start', {
+      method: 'POST', headers: { Authorization: 'Bearer ha-secret' }, body: JSON.stringify(body),
+    }));
+    expect(response.status).toBe(202);
+    expect(deviceSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'ota_start', device_id: 'test-device', command_id: body.command_id, channel: 'stable', target_version: '0.3.2', recovery: false }));
+    await doInstance.webSocketMessage(deviceSocket, JSON.stringify({ type: 'ota_success', command_id: body.command_id, state: 'confirmed', progress: 100 }));
+    const status = mockStorage.data.get('ota_statuses')['test-device'];
+    expect(status).toMatchObject({ command_id: body.command_id, state: 'confirmed', progress: 100 });
+  });
+
 });
