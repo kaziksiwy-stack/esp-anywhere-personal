@@ -222,4 +222,19 @@ describe('InstallationDO Routing & Persistence', () => {
     expect(status).toMatchObject({ command_id: body.command_id, state: 'confirmed', progress: 100 });
   });
 
+  it('confirms rebooted OTA only after matching discovery and state', async () => {
+    mockStorage.data.set('ota_statuses', { 'test-device': {
+      command_id: 'health-command', state: 'rebooting', target_version: '0.3.3',
+      health_discovery: false, health_state: false,
+    } });
+    await doInstance.webSocketMessage(deviceSocket, JSON.stringify({
+      type: 'discovery', payload: { firmware_version: '0.3.3' },
+    }));
+    expect(mockStorage.data.get('ota_statuses')['test-device'].state).toBe('rebooting');
+    await doInstance.webSocketMessage(deviceSocket, JSON.stringify({
+      type: 'state', payload: { test_switch: true },
+    }));
+    expect(mockStorage.data.get('ota_statuses')['test-device'].state).toBe('confirmed');
+  });
+
 });
