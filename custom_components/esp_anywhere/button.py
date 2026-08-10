@@ -14,7 +14,7 @@ from .platform_helpers import setup_dynamic_platform
 from .protocol import ALLOWED_COMMANDS
 from .runtime import DeviceState
 
-BUTTON_COMMANDS = ALLOWED_COMMANDS - {"set_entity", "install_update"}
+BUTTON_COMMANDS = ALLOWED_COMMANDS - {"install_update"}
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -49,6 +49,6 @@ class EspAnywhereButton(EspAnywhereEntity, ButtonEntity):
             self._tenant_id,
             self._device.device_id,
             self._command,
-            {},
+            {"entity_id": self._esp_description.entity_id, "value": True},
         )
 

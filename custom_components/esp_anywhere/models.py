@@ -25,6 +25,9 @@ class EntityDescription:
     enabled_by_default: bool = True
     read_only: bool = True
     command: str | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    step: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,11 +80,16 @@ def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
 
         read_only = raw.get("read_only", True) is True
         command = _optional_string(raw, "command", 32)
+        min_value = _optional_number(raw, "min_value") if platform == "number" else None
+        max_value = _optional_number(raw, "max_value") if platform == "number" else None
+        step = _optional_number(raw, "step") if platform == "number" else None
+        if platform == "number" and (min_value is None or max_value is None or step is None or min_value >= max_value or step <= 0):
+            raise ProtocolError("Number requires valid min_value, max_value and step")
         if platform == "button" and command not in (
-            ALLOWED_COMMANDS - {"set_entity", "install_update"}
+            ALLOWED_COMMANDS - {"install_update"}
         ):
             raise ProtocolError("Button requires an allowed command")
-        if platform in {"button", "switch", "text"} and read_only:
+        if platform in {"button", "number", "switch", "text"} and read_only:
             raise ProtocolError(f"{platform} must declare read_only=false")
         if platform != "button" and command is not None:
             raise ProtocolError("command is only valid for button entities")
@@ -97,6 +105,9 @@ def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
                 enabled_by_default=raw.get("enabled_by_default", True) is True,
                 read_only=read_only,
                 command=command,
+                min_value=min_value,
+                max_value=max_value,
+                step=step,
             )
         )
 
@@ -126,6 +137,14 @@ def parse_discovery(payload: dict[str, Any]) -> DeviceDescription:
         ota_capabilities=ota_capabilities,
     )
 
+
+def _optional_number(payload: dict[str, Any], key: str) -> float | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ProtocolError(f"Invalid {key}")
+    return float(value)
 
 def _required_string(payload: dict[str, Any], key: str, maximum: int) -> str:
     """Return a bounded non-empty string."""

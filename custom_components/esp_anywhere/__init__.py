@@ -13,7 +13,7 @@ from .mqtt_client import EspAnywhereMqttClient, MqttSettings
 from .websocket_client import EspAnywhereWebsocketClient, CloudflareSettings
 from .runtime import EspAnywhereRuntime
 
-PLATFORMS = ["binary_sensor", "button", "sensor", "switch", "text", "update"]
+PLATFORMS = ["binary_sensor", "button", "number", "sensor", "switch", "text", "update"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
