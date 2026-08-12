@@ -12,6 +12,7 @@ export interface Env {
   ADMIN_TOKEN?: string;
   ARTIFACT_ORIGIN?: string;
   ARTIFACTS?: KVNamespace;
+  SIGNING_PRIVATE_KEY?: string;
 }
 
 export { InstallationDO };
@@ -118,6 +119,20 @@ export default {
         return new Response('Bad request', { status: 400 });
       }
     }
+    if (request.method === 'POST' && url.pathname === '/ha/builder-bootstrap') {
+      try {
+        const body = (await request.clone().json()) as any;
+        const installationId = body.installation_id;
+        const authHeader = request.headers.get('Authorization');
+        if (typeof installationId !== 'string' || !IDENTIFIER_PATTERN.test(installationId)
+          || !authHeader?.startsWith('Bearer ')) return new Response('Invalid request', { status: 400 });
+        const id = env.ESP_ANYWHERE_INSTALLATION.idFromName(installationId);
+        return env.ESP_ANYWHERE_INSTALLATION.get(id).fetch(request);
+      } catch {
+        return new Response('Bad request', { status: 400 });
+      }
+    }
+
 
     if (request.method === 'POST' && url.pathname === '/ha/device-activation-code') {
       try {

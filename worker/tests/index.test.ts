@@ -75,6 +75,18 @@ describe('Worker HTTP routing', () => {
     expect(env.ESP_ANYWHERE_INSTALLATION.idFromName).toHaveBeenCalledWith('home-two');
     await expect(response.json()).resolves.toMatchObject({ installation_id: 'home-two', device_id: 'garage-node' });
   });
+  it('routes Builder bootstrap to exactly the authenticated installation', async () => {
+    const { env } = envWithStub();
+    const response = await worker.fetch(new Request('http://worker/ha/builder-bootstrap', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ha-role-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installation_id: 'home-two' }),
+    }), env as any, {} as any);
+    expect(response.status).toBe(200);
+    expect(env.ESP_ANYWHERE_INSTALLATION.idFromName).toHaveBeenCalledWith('home-two');
+    await expect(response.json()).resolves.toMatchObject({ installation_id: 'home-two' });
+  });
+
   it('serves the signed OTA manifest and exact firmware asset', async () => {
     const { env } = envWithStub();
     const manifest = await worker.fetch(new Request('https://worker/ota/stable/manifest.json'), env as any, {} as any);

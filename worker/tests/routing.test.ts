@@ -126,6 +126,27 @@ describe('InstallationDO Routing & Persistence', () => {
     expect(haSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: "state", payload: { led_switch: true }, device_id: "test-device" }));
   });
 
+  it('provisions the signing key only to the HA token and never caches it', async () => {
+    mockStorage.data.set('ha_token', 'ha-secret');
+    doInstance.env = {
+      SIGNING_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nstaging-fixture',
+    } as any;
+    const bootstrap = (token: string) => doInstance.fetch(new Request(
+      'http://worker/ha/builder-bootstrap',
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ installation_id: 'home-one' }) },
+    ));
+    expect((await bootstrap('wrong-token')).status).toBe(401);
+    const response = await bootstrap('ha-secret');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    await expect(response.json()).resolves.toMatchObject({
+      key_id: 'staging-esphome-2026-08',
+      private_key: expect.stringContaining('PRIVATE KEY'),
+    });
+    expect(JSON.stringify([...mockStorage.data.entries()])).not.toContain('PRIVATE KEY');
+  });
+
   it('lets only the HA token create a device-bound code', async () => {
     mockStorage.data.set('ha_token', 'ha-secret');
     mockStorage.data.set('device_tokens', { 'old-device': { deviceId: 'old-device', token: 'device-secret' } });

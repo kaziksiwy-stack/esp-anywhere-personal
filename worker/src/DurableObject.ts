@@ -145,6 +145,20 @@ export class InstallationDO {
         headers: { 'Content-Type': 'application/json' }
       });
     }
+    if (request.method === 'POST' && url.pathname === '/ha/builder-bootstrap') {
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!await this.isAuthorized('home_assistant', null, token)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      if (!this.env.SIGNING_PRIVATE_KEY?.includes('PRIVATE KEY')) {
+        return new Response('Signing key unavailable', { status: 503 });
+      }
+      return Response.json({
+        key_id: 'staging-esphome-2026-08',
+        private_key: this.env.SIGNING_PRIVATE_KEY,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    }
 
     if (request.method === 'POST' && url.pathname === '/ha/device-activation-code') {
       const body = (await request.json()) as any;
