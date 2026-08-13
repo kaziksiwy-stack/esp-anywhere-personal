@@ -20,7 +20,7 @@ interface DeviceCredential {
 }
 
 interface AuditEvent { event: 'device_activation_created'; deviceId: string; timestamp: number; }
-const ACTIVATION_TTL_MS = 5 * 60 * 1000;
+const ACTIVATION_TTL_MS = 60 * 60 * 1000;
 const RATE_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT = 5;
 const MAX_DEVICES = 64;
